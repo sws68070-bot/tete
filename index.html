@@ -79,6 +79,38 @@
     opacity: 0.95; transition: opacity 0.2s; image-rendering: pixelated;
   }
   #trackCanvas.hidden { opacity: 0; pointer-events: none; }
+
+  #calibOverlay {
+    display: none; position: fixed; inset: 0; z-index: 22;
+    background: rgba(5,7,10,0.97); color: #fff; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; padding: 24px;
+  }
+  #calibOverlay.active { display: flex; }
+  #calibOverlay p { color: rgba(255,255,255,0.65); font-size: 12px; max-width: 320px; line-height: 1.5; }
+  #calibRingWrap { position: relative; width: 150px; height: 150px; margin: 10px 0; }
+  #calibRingWrap svg { transform: rotate(-90deg); }
+  #calibRingBg { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 8; }
+  #calibRingFg { fill: none; stroke: #ffb020; stroke-width: 8; stroke-linecap: round;
+    transition: stroke-dashoffset 0.1s linear; }
+  #calibDegText {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700;
+  }
+  #calibStrip {
+    display: flex; gap: 4px; overflow-x: auto; max-width: 92vw; padding: 8px 0; margin-bottom: 6px;
+  }
+  #calibStrip img {
+    width: 46px; height: 34px; object-fit: cover; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.25); flex: 0 0 auto;
+  }
+  #calibSpeed { font-size: 11px; color: rgba(120,220,255,0.9); font-family: monospace; margin-bottom: 4px; }
+  #calibButtons { display: flex; gap: 8px; margin-top: 10px; }
+  #calibButtons button {
+    padding: 12px 22px; border-radius: 10px; border: none; font-size: 14px; font-weight: 700;
+  }
+  #calibCancelBtn { background: rgba(255,255,255,0.1); color: #fff; }
+  #calibDoneBtn { background: #ffb020; color: #071018; display: none; }
+  #calibSummary { display: none; font-size: 12px; color: rgba(120,255,170,0.9); margin-top: 6px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -95,12 +127,37 @@
 
 <div id="topControls">
   <button id="calibBtn">Recentralizar</button>
+  <button id="calib360Btn">Calibrar 360°</button>
   <button id="exitVrBtn" style="display:none">Sair do VR</button>
 </div>
 
 <div id="rotateHint">
   <div style="font-size:40px;margin-bottom:12px">📱↻</div>
   Gire o celular pra horizontal antes de colocar no VR box.
+</div>
+
+<div id="calibOverlay">
+  <h2 style="margin-bottom:4px">Calibração 360°</h2>
+  <p>
+    Segure o celular à sua frente, com a câmera apontando pra frente, e gire
+    devagar em um círculo completo até voltar pro ponto de partida. O site
+    vai tirar fotos ao longo do giro e usar isso pra ajustar a escala
+    grau/pixel da câmera e a velocidade máxima que consegue acompanhar.
+  </p>
+  <div id="calibRingWrap">
+    <svg width="150" height="150">
+      <circle id="calibRingBg" cx="75" cy="75" r="66"></circle>
+      <circle id="calibRingFg" cx="75" cy="75" r="66" stroke-dasharray="414.7" stroke-dashoffset="414.7"></circle>
+    </svg>
+    <div id="calibDegText">0°</div>
+  </div>
+  <div id="calibSpeed">velocidade: 0°/s · máxima: 0°/s</div>
+  <div id="calibStrip"></div>
+  <div id="calibSummary"></div>
+  <div id="calibButtons">
+    <button id="calibCancelBtn">Cancelar</button>
+    <button id="calibDoneBtn">Concluir</button>
+  </div>
 </div>
 
 <div id="overlay">
@@ -213,6 +270,10 @@ resize();
 
 // ================= Orientação: câmera = yaw · acelerômetro = pitch =================
 let yaw = 0, pitch = 0;                          // ângulos fundidos, radianos
+// yaw "desembrulhado": acumula sem normalizar -180..180, só pra medir
+// rotação total durante a calibração 360° (o `yaw` normal reseta a cada
+// volta e não serve pra saber se já completou o círculo).
+let yawUnwrappedDeg = 0;
 let yawOffset = 0, pitchOffset = 0;               // aplicados por "Recentralizar"
 const MAX_PITCH = THREE.MathUtils.degToRad(85);
 
@@ -274,8 +335,10 @@ function fuseOrientation() {
 const FINE_W = 48, FINE_H = 36;
 const FOV_H_DEG = 60;
 const FOV_V_DEG = FOV_H_DEG * (FINE_H / FINE_W);
-const DEG_PER_PIXEL_X = FOV_H_DEG / FINE_W;
-const DEG_PER_PIXEL_Y = FOV_V_DEG / FINE_H;
+// mutáveis: a calibração 360° reajusta esses dois pela mesma razão, pra
+// corrigir o FOV declarado (60°) contra o FOV real da câmera do aparelho.
+let DEG_PER_PIXEL_X = FOV_H_DEG / FINE_W;
+let DEG_PER_PIXEL_Y = FOV_V_DEG / FINE_H;
 
 const PATCH_HALF = 3;
 const CONSENSUS_TOLERANCE_PX = 1.6;
@@ -449,18 +512,36 @@ function subpixelOffset(prev, curr, w, h, px, py, dx, dy) {
   return { ox, oy };
 }
 
-// Busca completa de um ponto: nível grosso (meia-res) pra capturar
-// deslocamentos grandes, depois nível fino (res cheia) pra refinar, e por
-// fim sub-pixel. seedDx/seedDy já estão na resolução cheia.
-function trackPointPyramid(prevFine, currFine, prevHalf, currHalf, px, py, seedDx, seedDy) {
+// Nível extra de pirâmide (1/4 da resolução): fica desligado por padrão
+// pra economizar CPU. A calibração 360° liga isso automaticamente se
+// medir que o usuário gira rápido demais pro alcance do nível de meia-res
+// sozinho (deslocamento por quadro maior do que a busca em diamante
+// consegue cobrir mesmo já reduzido pela metade).
+let useExtraPyramidLevel = false;
+
+function trackPointPyramid(prevFine, currFine, prevHalf, currHalf, prevQuarter, currQuarter, px, py, seedDx, seedDy) {
+  let seedHalfDx = seedDx / 2, seedHalfDy = seedDy / 2;
+
+  if (useExtraPyramidLevel && prevQuarter && currQuarter) {
+    const qx = px >> 2, qy = py >> 2;
+    const coarsest = diamondSearch(
+      prevQuarter.data, currQuarter.data, prevQuarter.w, prevQuarter.h,
+      qx, qy, seedDx / 4, seedDy / 4
+    );
+    if (coarsest.avgSad !== Infinity) {
+      seedHalfDx = coarsest.dx * 2;
+      seedHalfDy = coarsest.dy * 2;
+    }
+  }
+
   // nível grosso: coordenadas e semente na metade da resolução
   const hx = px >> 1, hy = py >> 1;
   const coarse = diamondSearch(
     prevHalf.data, currHalf.data, prevHalf.w, prevHalf.h,
-    hx, hy, seedDx / 2, seedDy / 2
+    hx, hy, seedHalfDx, seedHalfDy
   );
-  const coarseDx = (coarse.avgSad === Infinity ? seedDx / 2 : coarse.dx) * 2;
-  const coarseDy = (coarse.avgSad === Infinity ? seedDy / 2 : coarse.dy) * 2;
+  const coarseDx = (coarse.avgSad === Infinity ? seedHalfDx : coarse.dx) * 2;
+  const coarseDy = (coarse.avgSad === Infinity ? seedHalfDy : coarse.dy) * 2;
 
   // nível fino: refina ao redor da estimativa grosseira já escalada
   const fine = diamondSearch(prevFine, currFine, FINE_W, FINE_H, px, py, coarseDx, coarseDy);
@@ -534,14 +615,16 @@ function beep(freq, durationMs) {
 }
 
 let prevHalf = null;
+let prevQuarter = null;
 
 function opticalFlowTick() {
   if (!cameraActive) return;
   fineCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
   const currFine = toGray(fineCtx, FINE_W, FINE_H);
   const currHalf = downsampleHalf(currFine, FINE_W, FINE_H);
+  const currQuarter = useExtraPyramidLevel ? downsampleHalf(currHalf.data, currHalf.w, currHalf.h) : null;
 
-  if (!prevFine) { prevFine = currFine; prevHalf = currHalf; cameraTrust = 0; return; }
+  if (!prevFine) { prevFine = currFine; prevHalf = currHalf; prevQuarter = currQuarter; cameraTrust = 0; return; }
 
   const ii = buildIntegral(currFine, FINE_W, FINE_H);
   const activePoints = selectActivePoints(ii);
@@ -549,7 +632,7 @@ function opticalFlowTick() {
   const results = [];
   for (const cell of activePoints) {
     const state = pointState.get(cell.id) || { health: 1.0, dx: predictedDx, dy: predictedDy };
-    const r = trackPointPyramid(prevFine, currFine, prevHalf, currHalf, cell.x, cell.y, state.dx, state.dy);
+    const r = trackPointPyramid(prevFine, currFine, prevHalf, currHalf, prevQuarter, currQuarter, cell.x, cell.y, state.dx, state.dy);
     if (!r) continue;
     results.push({ id: cell.id, x: cell.x, y: cell.y, dx: r.dx, dy: r.dy, health: state.health });
   }
@@ -583,6 +666,8 @@ function opticalFlowTick() {
     if (consensus > YAW_TRUST_MIN) {
       const deltaYawDeg = -medDx * DEG_PER_PIXEL_X;
       yaw += THREE.MathUtils.degToRad(deltaYawDeg) * consensus;
+      yawUnwrappedDeg += deltaYawDeg * consensus;
+      if (calibActive) updateCalibration(deltaYawDeg * consensus);
 
       const deltaPitchDeg = -medDy * DEG_PER_PIXEL_Y;
       camPitchPredicted = pitch + THREE.MathUtils.degToRad(deltaPitchDeg) * consensus;
@@ -607,6 +692,7 @@ function opticalFlowTick() {
   pointState = nextPointState;
   prevFine = currFine;
   prevHalf = currHalf;
+  prevQuarter = currQuarter;
 }
 
 async function startCamera() {
@@ -650,6 +736,149 @@ function showCameraError(err) {
   document.body.appendChild(box);
   document.getElementById('dismissCamErr').addEventListener('click', () => box.remove());
 }
+
+// ================= Calibração 360° =================
+// Fluxo: usuário gira o aparelho um círculo completo. Durante o giro:
+//  1) tiramos uma foto a cada ~30° acumulados, só pra feedback visual
+//     (não são salvas nem enviadas a lugar nenhum, ficam só na memória
+//     da aba e somem ao fechar a calibração).
+//  2) medimos a velocidade angular (°/s) frame a frame — se o pico passar
+//     de um limiar, ligamos um nível extra de pirâmide (1/4 da resolução)
+//     pra próxima vez que o rastreamento precisar acompanhar giros rápidos.
+//  3) ao completar ~360°, comparamos o total medido pela câmera contra os
+//     360° reais e reajustamos DEG_PER_PIXEL_X/Y pela razão — corrige o
+//     FOV declarado (60°) caso não bata com o FOV real da câmera do aparelho.
+let calibActive = false;
+let calibStartUnwrappedDeg = 0;
+let calibLastPhotoAtDeg = 0;
+let calibMaxSpeedDegPerSec = 0;
+let calibSpeedSampleSum = 0, calibSpeedSampleCount = 0;
+let calibLastTickTime = 0;
+let calibPhotos = [];
+const CALIB_PHOTO_EVERY_DEG = 30;
+const CALIB_TARGET_DEG = 360;
+const CALIB_COMPLETE_THRESHOLD_DEG = 345; // aceita completar um pouco antes de 360 exatos
+const CALIB_FAST_SPEED_THRESHOLD_DEGPS = 200; // acima disso, liga a pirâmide de 1/4 de res
+
+const calibOverlayEl = document.getElementById('calibOverlay');
+const calibRingFg = document.getElementById('calibRingFg');
+const calibDegText = document.getElementById('calibDegText');
+const calibSpeedEl = document.getElementById('calibSpeed');
+const calibStripEl = document.getElementById('calibStrip');
+const calibSummaryEl = document.getElementById('calibSummary');
+const calibDoneBtn = document.getElementById('calibDoneBtn');
+const calibCancelBtn = document.getElementById('calibCancelBtn');
+const CALIB_RING_CIRC = 2 * Math.PI * 66;
+
+function calibCapturePhoto() {
+  if (calibPhotos.length >= 16) return; // limite de memória
+  const shot = document.createElement('canvas');
+  shot.width = 96; shot.height = 72;
+  shot.getContext('2d').drawImage(videoEl, 0, 0, 96, 72);
+  calibPhotos.push(shot.toDataURL('image/jpeg', 0.6));
+  const img = document.createElement('img');
+  img.src = calibPhotos[calibPhotos.length - 1];
+  calibStripEl.appendChild(img);
+  calibStripEl.scrollLeft = calibStripEl.scrollWidth;
+}
+
+function updateCalibration(deltaYawDeg) {
+  const now = performance.now();
+  const dt = Math.max(0.001, (now - calibLastTickTime) / 1000);
+  calibLastTickTime = now;
+
+  const speed = Math.abs(deltaYawDeg) / dt;
+  calibMaxSpeedDegPerSec = Math.max(calibMaxSpeedDegPerSec, speed);
+  calibSpeedSampleSum += speed;
+  calibSpeedSampleCount++;
+
+  const totalDeg = Math.abs(yawUnwrappedDeg - calibStartUnwrappedDeg);
+
+  if (totalDeg - calibLastPhotoAtDeg >= CALIB_PHOTO_EVERY_DEG) {
+    calibLastPhotoAtDeg = totalDeg;
+    calibCapturePhoto();
+  }
+
+  const progress = Math.min(1, totalDeg / CALIB_TARGET_DEG);
+  calibRingFg.style.strokeDashoffset = (CALIB_RING_CIRC * (1 - progress)).toFixed(1);
+  calibDegText.textContent = Math.round(totalDeg) + '°';
+  const avgSpeed = calibSpeedSampleCount ? calibSpeedSampleSum / calibSpeedSampleCount : 0;
+  calibSpeedEl.textContent = `velocidade: ${avgSpeed.toFixed(0)}°/s · máxima: ${calibMaxSpeedDegPerSec.toFixed(0)}°/s`;
+
+  if (totalDeg >= CALIB_COMPLETE_THRESHOLD_DEG) {
+    calibDoneBtn.style.display = 'inline-block';
+    calibDoneBtn.textContent = 'Concluir';
+  }
+}
+
+async function startCalibration() {
+  await startSensors();
+  calibActive = true;
+  calibStartUnwrappedDeg = yawUnwrappedDeg;
+  calibLastPhotoAtDeg = 0;
+  calibMaxSpeedDegPerSec = 0;
+  calibSpeedSampleSum = 0; calibSpeedSampleCount = 0;
+  calibLastTickTime = performance.now();
+  calibPhotos = [];
+  calibStripEl.innerHTML = '';
+  calibSummaryEl.style.display = 'none';
+  calibDoneBtn.style.display = 'none';
+  calibDoneBtn.textContent = 'Concluir agora';
+  calibDoneBtn.style.display = 'inline-block'; // deixa concluir manualmente a qualquer momento
+  calibRingFg.style.strokeDashoffset = CALIB_RING_CIRC.toFixed(1);
+  calibDegText.textContent = '0°';
+  calibSpeedEl.textContent = 'velocidade: 0°/s · máxima: 0°/s';
+  calibOverlayEl.classList.add('active');
+}
+
+function finishCalibration() {
+  calibActive = false;
+  const totalDeg = Math.abs(yawUnwrappedDeg - calibStartUnwrappedDeg);
+
+  let summaryLines = [];
+  if (totalDeg > 60) {
+    // só corrige a escala se o giro medido foi grande o suficiente pra a
+    // razão fazer sentido (evita calibração maluca com giros curtos/ruins)
+    const correction = THREE.MathUtils.clamp(CALIB_TARGET_DEG / totalDeg, 0.7, 1.3);
+    DEG_PER_PIXEL_X *= correction;
+    DEG_PER_PIXEL_Y *= correction;
+    const pct = ((correction - 1) * 100).toFixed(1);
+    summaryLines.push(`Escala da câmera ajustada em ${pct > 0 ? '+' : ''}${pct}% (giro medido: ${totalDeg.toFixed(0)}° pra 360° reais)`);
+  } else {
+    summaryLines.push(`Giro medido foi pequeno demais (${totalDeg.toFixed(0)}°) — escala não foi ajustada.`);
+  }
+
+  const wasExtraOn = useExtraPyramidLevel;
+  useExtraPyramidLevel = calibMaxSpeedDegPerSec >= CALIB_FAST_SPEED_THRESHOLD_DEGPS;
+  if (useExtraPyramidLevel && !wasExtraOn) {
+    summaryLines.push(`Velocidade máxima detectada: ${calibMaxSpeedDegPerSec.toFixed(0)}°/s — pirâmide extra (1/4 de resolução) ativada pra acompanhar giros rápidos.`);
+  } else if (!useExtraPyramidLevel) {
+    summaryLines.push(`Velocidade máxima detectada: ${calibMaxSpeedDegPerSec.toFixed(0)}°/s — dentro do alcance normal, pirâmide extra não é necessária.`);
+  }
+
+  calibSummaryEl.innerHTML = summaryLines.map(l => `<div>✓ ${l}</div>`).join('');
+  calibSummaryEl.style.display = 'block';
+  calibDoneBtn.style.display = 'none';
+  calibCancelBtn.textContent = 'Fechar';
+}
+
+function cancelCalibration() {
+  calibActive = false;
+  calibOverlayEl.classList.remove('active');
+  calibCancelBtn.textContent = 'Cancelar';
+  calibDoneBtn.style.display = 'none';
+  calibSummaryEl.style.display = 'none';
+}
+
+document.getElementById('calib360Btn').addEventListener('click', startCalibration);
+calibDoneBtn.addEventListener('click', () => {
+  if (calibActive) finishCalibration();
+  else cancelCalibration(); // segundo toque em "Fechar" depois do resumo
+});
+calibCancelBtn.addEventListener('click', () => {
+  if (calibActive) { cancelCalibration(); }
+  else { calibOverlayEl.classList.remove('active'); }
+});
 
 // ================= Recentralizar =================
 document.getElementById('calibBtn').addEventListener('click', () => {
