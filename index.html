@@ -2,936 +2,727 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GIRO-VIO · Emulador de Giroscópio Visual-Inercial</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>VR Box — Cubo (rastreamento câmera + acelerômetro)</title>
 <style>
-  :root{
-    --void:#0A0E14;
-    --panel:#10151D;
-    --panel-2:#141A24;
-    --hairline:#232C38;
-    --hairline-bright:#3A4656;
-    --amber:#FFB238;
-    --amber-dim:#8A6420;
-    --cyan:#4FD8E8;
-    --cyan-dim:#245258;
-    --red:#FF4136;
-    --text:#E8EDF2;
-    --text-dim:#7C8896;
-    --mono:'IBM Plex Mono', ui-monospace, monospace;
-    --sans:'IBM Plex Sans', system-ui, sans-serif;
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    width: 100%; height: 100%;
+    background: #000;
+    font-family: -apple-system, system-ui, sans-serif;
+    touch-action: none;
   }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  html{scroll-behavior:smooth;}
-  body{
-    background:var(--void);
-    color:var(--text);
-    font-family:var(--sans);
-    line-height:1.55;
-    -webkit-font-smoothing:antialiased;
-  }
-  body::before{
-    content:'';
-    position:fixed; inset:0;
-    background-image:
-      linear-gradient(var(--hairline) 1px, transparent 1px),
-      linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
-    background-size:48px 48px;
-    opacity:.12;
-    pointer-events:none;
-    z-index:0;
-  }
-  a{color:var(--cyan);}
+  canvas { display: block; }
 
-  /* ---------- top bar ---------- */
-  .topbar{
-    position:sticky; top:0; z-index:50;
-    display:flex; align-items:center; justify-content:space-between;
-    padding:14px 28px;
-    background:rgba(10,14,20,.9);
-    backdrop-filter:blur(8px);
-    border-bottom:1px solid var(--hairline);
+  #overlay {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(5,7,10,0.97); z-index: 20; color: #fff; text-align: center; padding: 24px;
   }
-  .brand{
-    font-family:var(--mono); font-weight:700; letter-spacing:.12em;
-    font-size:14px; color:var(--amber);
-    display:flex; align-items:center; gap:10px;
+  #overlay h2 { margin-bottom: 6px; }
+  #overlay p { color: rgba(255,255,255,0.6); font-size: 13px; max-width: 340px; line-height: 1.5; }
+  #overlay button {
+    margin: 8px; padding: 14px 28px; font-size: 15px; border-radius: 10px;
+    border: none; background: #ffb020; color: #071018; font-weight: 700;
   }
-  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--amber); box-shadow:0 0 8px var(--amber);}
-  .topbar nav{display:flex; gap:22px; font-family:var(--mono); font-size:12px; letter-spacing:.06em;}
-  .topbar nav a{color:var(--text-dim); text-decoration:none; transition:color .15s;}
-  .topbar nav a:hover{color:var(--text);}
+  #overlay button.secondary { background: rgba(255,255,255,0.1); color: #fff; }
 
-  /* ---------- hero / console ---------- */
-  .hero{
-    position:relative; z-index:1;
-    padding:36px 28px 12px;
-    max-width:1400px; margin:0 auto;
+  #rotateHint {
+    display: none; position: fixed; inset: 0; z-index: 25;
+    background: rgba(5,7,10,0.97); color: #fff; align-items: center; justify-content: center;
+    text-align: center; font-size: 15px; padding: 24px; flex-direction: column;
   }
-  .hero-head{max-width:760px; margin-bottom:28px;}
-  .eyebrow{
-    font-family:var(--mono); font-size:11px; letter-spacing:.18em; color:var(--cyan);
-    text-transform:uppercase; margin-bottom:12px; display:flex; gap:8px; align-items:center;
+  @media (orientation: portrait) {
+    #rotateHint.armed { display: flex; }
   }
-  .eyebrow::before{content:''; width:18px; height:1px; background:var(--cyan);}
-  h1{
-    font-family:var(--mono); font-weight:600; font-size:clamp(28px,4vw,44px);
-    line-height:1.15; letter-spacing:-.01em; margin-bottom:14px;
-  }
-  h1 em{font-style:normal; color:var(--amber);}
-  .hero-head p{color:var(--text-dim); font-size:15px; max-width:620px;}
 
-  .console{
-    display:grid;
-    grid-template-columns:1.5fr 1fr;
-    gap:1px;
-    background:var(--hairline);
-    border:1px solid var(--hairline);
-    height:calc(100vh - 64px);
-    min-height:560px;
+  #hud {
+    position: fixed; top: 8px; left: 8px; color: #9fd; font-size: 10px;
+    background: rgba(0,0,0,0.45); padding: 6px 10px; border-radius: 8px;
+    font-family: monospace; line-height: 1.5; z-index: 5; pointer-events: none;
   }
-  @media (max-width:920px){ .console{grid-template-columns:1fr; height:auto; min-height:0;} }
+  #reticle {
+    position: fixed; top: 50%; left: 50%; width: 8px; height: 8px;
+    margin: -4px 0 0 -4px; border-radius: 50%; background: rgba(255,255,255,0.7);
+    z-index: 5; pointer-events: none; display: none;
+  }
+  #eyeDivider {
+    position: fixed; top: 0; bottom: 0; left: 50%; width: 1px;
+    background: rgba(255,255,255,0.08); z-index: 4; display: none;
+  }
 
-  .panel{background:var(--panel); position:relative; display:flex; flex-direction:column; min-height:0; height:100%;}
-  .panel-head{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:10px 16px; border-bottom:1px solid var(--hairline);
-    font-family:var(--mono); font-size:11px; letter-spacing:.1em; color:var(--text-dim);
-    text-transform:uppercase; flex:0 0 auto;
+  #topControls {
+    position: fixed; top: 8px; right: 8px; z-index: 6;
+    display: flex; gap: 6px;
   }
-  .panel-head .led{width:6px;height:6px;border-radius:50%; background:var(--hairline-bright); display:inline-block; margin-right:6px;}
-  .led.on{background:var(--amber); box-shadow:0 0 6px var(--amber);}
-  .led.bad{background:var(--red); box-shadow:0 0 6px var(--red);}
-  .led.ok{background:#5CE87A; box-shadow:0 0 6px #5CE87A;}
+  #topControls button {
+    padding: 7px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08); color: #fff; font-size: 10px;
+  }
 
-  #viewport-wrap{position:relative; width:100%; flex:1 1 auto; min-height:0;}
-  #three-canvas{display:block; width:100%; height:100%; cursor:grab;}
-  #three-canvas:active{cursor:grabbing;}
-  .viewport-hint{
-    position:absolute; bottom:10px; left:14px; font-family:var(--mono); font-size:10px;
-    color:var(--text-dim); letter-spacing:.05em; pointer-events:none;
+  #camPreview {
+    position: fixed; bottom: 8px; left: 8px; width: 96px; height: 72px;
+    border-radius: 8px; border: 2px solid rgba(255,176,32,0.6); z-index: 6;
+    object-fit: cover; opacity: 0.95; transition: opacity 0.2s;
   }
-  .viewport-tag{
-    position:absolute; top:10px; right:14px; font-family:var(--mono); font-size:10px;
-    color:var(--amber-dim); letter-spacing:.1em; pointer-events:none;
-  }
-  .axis-hint{
-    position:absolute; bottom:10px; right:14px; font-family:var(--mono); font-size:10px;
-    letter-spacing:.05em; pointer-events:none; text-align:right; line-height:1.6;
-  }
-  .axis-hint .cam-lbl{color:var(--cyan);}
-  .axis-hint .acc-lbl{color:var(--amber);}
+  #camPreview.hidden { opacity: 0; pointer-events: none; }
 
-  .sidebar{display:flex; flex-direction:column; height:100%; min-height:0; overflow-y:auto;}
-  .cam-box{position:relative; flex:0 0 34%; min-height:180px; background:#000; overflow:hidden; border-bottom:1px solid var(--hairline);}
-  #video{width:100%; height:100%; object-fit:cover; opacity:.85; transform:scaleX(-1);}
-  #flow-canvas{position:absolute; inset:0; width:100%; height:100%; transform:scaleX(-1);}
-  .cam-overlay{
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    flex-direction:column; gap:10px; background:rgba(10,14,20,.88); text-align:center; padding:20px;
+  #vignette {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle, transparent 45%, rgba(0,0,0,0.85) 100%);
+    transition: opacity 0.08s linear;
   }
-  .cam-overlay.hidden{display:none;}
-  .cam-overlay p{font-size:12px; color:var(--text-dim); max-width:280px;}
 
-  .readouts{padding:16px; display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--hairline); flex:0 0 auto;}
-  .readout{background:var(--panel); padding:12px 14px;}
-  .readout .rlabel{font-family:var(--mono); font-size:10px; color:var(--text-dim); letter-spacing:.1em; text-transform:uppercase; display:flex; justify-content:space-between;}
-  .readout .rlabel .src{font-size:9px;}
-  .readout .rlabel .src.cam{color:var(--cyan);}
-  .readout .rlabel .src.acc{color:var(--amber);}
-  .readout .rval{font-family:var(--mono); font-size:24px; font-weight:600; color:var(--amber); margin-top:4px;}
-  .readout .rval small{font-size:12px; color:var(--text-dim); font-weight:400;}
-  .readout.cyan .rval{color:var(--cyan);}
-
-  .strip{padding:0 16px 16px; flex:0 0 auto;}
-  #trail-canvas{width:100%; height:64px; display:block; background:var(--panel-2); border:1px solid var(--hairline);}
-
-  .controls{padding:16px; border-top:1px solid var(--hairline); display:flex; flex-direction:column; gap:12px; flex:1 1 auto;}
-  .btnrow{display:flex; gap:8px; flex-wrap:wrap;}
-  button{
-    font-family:var(--mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase;
-    background:var(--panel-2); color:var(--text); border:1px solid var(--hairline-bright);
-    padding:9px 12px; cursor:pointer; transition:all .15s;
+  #trackCanvas {
+    position: fixed; bottom: 8px; left: 112px; width: 96px; height: 72px;
+    border-radius: 8px; border: 2px solid rgba(120,220,255,0.5); z-index: 6;
+    opacity: 0.95; transition: opacity 0.2s; image-rendering: pixelated;
   }
-  button:hover{border-color:var(--amber); color:var(--amber);}
-  button.primary{background:var(--amber); color:#1a1206; border-color:var(--amber); font-weight:600;}
-  button.primary:hover{background:#ffc45f;}
-  button.active{border-color:var(--cyan); color:var(--cyan);}
-  button:disabled{opacity:.35; cursor:not-allowed;}
-
-  .field{display:flex; flex-direction:column; gap:6px;}
-  .field label{font-family:var(--mono); font-size:10px; color:var(--text-dim); letter-spacing:.08em; text-transform:uppercase; display:flex; justify-content:space-between;}
-  .field label span{color:var(--amber);}
-  input[type=range]{
-    -webkit-appearance:none; width:100%; height:2px; background:var(--hairline-bright); outline:none;
-  }
-  input[type=range]::-webkit-slider-thumb{
-    -webkit-appearance:none; width:12px; height:12px; background:var(--amber); border-radius:50%; cursor:pointer;
-  }
-  .toggle-row{display:flex; align-items:center; justify-content:space-between; font-family:var(--mono); font-size:11px; color:var(--text-dim);}
-
-  .status-line{font-family:var(--mono); font-size:11px; color:var(--text-dim); padding:10px 16px; border-top:1px solid var(--hairline);}
-  .status-line b{color:var(--amber); font-weight:600;}
-
-  /* ---------- content sections ---------- */
-  main{max-width:1400px; margin:0 auto; padding:64px 28px; position:relative; z-index:1;}
-  section{margin-bottom:72px;}
-  .section-head{display:flex; align-items:baseline; gap:16px; margin-bottom:24px; border-bottom:1px solid var(--hairline); padding-bottom:14px;}
-  .section-num{font-family:var(--mono); color:var(--amber-dim); font-size:13px;}
-  .section-head h2{font-family:var(--mono); font-size:20px; font-weight:600; letter-spacing:-.01em;}
-  .section-sub{color:var(--text-dim); font-size:13px; margin-left:auto; font-family:var(--mono);}
-
-  .arch-diagram{
-    display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px;
-  }
-  @media (max-width:760px){.arch-diagram{grid-template-columns:1fr;}}
-  .arch-node{
-    background:var(--panel); border:1px solid var(--hairline); padding:18px;
-    position:relative;
-  }
-  .arch-node .n{font-family:var(--mono); color:var(--amber); font-size:11px; letter-spacing:.1em; margin-bottom:8px;}
-  .arch-node h3{font-family:var(--mono); font-size:15px; margin-bottom:8px;}
-  .arch-node p{font-size:13px; color:var(--text-dim);}
-  .arch-node::after{
-    content:'→'; position:absolute; right:-24px; top:50%; transform:translateY(-50%);
-    color:var(--hairline-bright); font-size:18px;
-  }
-  @media (max-width:760px){.arch-node::after{content:'↓'; right:auto; left:50%; top:auto; bottom:-24px; transform:translateX(-50%);}}
-  .arch-node:last-child::after{content:'';}
-
-  .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:24px;}
-  @media (max-width:760px){.grid-2{grid-template-columns:1fr;}}
-
-  .card{background:var(--panel); border:1px solid var(--hairline); padding:20px;}
-  .card h3{font-family:var(--mono); font-size:14px; color:var(--cyan); margin-bottom:10px; letter-spacing:.03em;}
-  .card p{font-size:13.5px; color:var(--text-dim); margin-bottom:10px;}
-  .card p:last-child{margin-bottom:0;}
-
-  .eq{
-    font-family:var(--mono); background:var(--panel-2); border-left:2px solid var(--amber);
-    padding:14px 18px; margin:12px 0; font-size:14px; overflow-x:auto; color:var(--text);
-  }
-  .eq .k{color:var(--amber);}
-  .eq .v{color:var(--cyan);}
-
-  table.spec{width:100%; border-collapse:collapse; font-size:13px;}
-  table.spec th, table.spec td{
-    text-align:left; padding:10px 12px; border-bottom:1px solid var(--hairline);
-  }
-  table.spec th{font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-dim);}
-  table.spec td.prob{color:var(--text);}
-  table.spec td.fix{color:var(--text-dim);}
-  table.spec tr td:first-child{font-family:var(--mono); color:var(--amber); white-space:nowrap;}
-
-  .codebox{
-    background:#0C1117; border:1px solid var(--hairline); position:relative; overflow:hidden;
-  }
-  .codebox .cb-head{
-    display:flex; justify-content:space-between; align-items:center; padding:8px 14px;
-    border-bottom:1px solid var(--hairline); font-family:var(--mono); font-size:11px; color:var(--text-dim);
-  }
-  .codebox pre{
-    padding:18px; overflow-x:auto; font-family:var(--mono); font-size:12.5px; line-height:1.65; color:#C9D4DE;
-    max-height:420px; overflow-y:auto;
-  }
-  .codebox .c1{color:#6A7684;} /* comments */
-  .codebox .k2{color:var(--cyan);} /* keywords */
-  .codebox .s3{color:var(--amber);} /* strings/funcs */
-
-  footer{
-    border-top:1px solid var(--hairline); padding:24px 28px; text-align:center;
-    font-family:var(--mono); font-size:11px; color:var(--text-dim); position:relative; z-index:1;
-  }
-  footer a{color:var(--text-dim);}
-
-  ::selection{background:var(--amber); color:#1a1206;}
+  #trackCanvas.hidden { opacity: 0; pointer-events: none; }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="brand"><span class="dot"></span>GIRO·VIO</div>
-  <nav>
-    <a href="#console">Console</a>
-    <a href="#arquitetura">Arquitetura</a>
-    <a href="#matematica">Matemática</a>
-    <a href="#codigo">Código</a>
-    <a href="#desafios">Desafios</a>
-  </nav>
+<div id="vignette"></div>
+<div id="hud">
+  yaw: <span id="y">0.0</span>° · pitch: <span id="p">0.0</span>° · roll: <span id="r">0.0</span>°<br>
+  <span id="modeY">-</span> · <span id="stillState">-</span>
+</div>
+<div id="reticle"></div>
+<video id="camPreview" playsinline autoplay muted></video>
+<canvas id="trackCanvas" width="48" height="36"></canvas>
+<div id="eyeDivider"></div>
+
+<div id="topControls">
+  <button id="calibBtn">Recentralizar</button>
+  <button id="exitVrBtn" style="display:none">Sair do VR</button>
 </div>
 
-<div class="hero">
-  <div class="hero-head">
-    <div class="eyebrow">Odometria Visual-Inercial · Instrumento de Bancada</div>
-    <h1>Emulando um <em>giroscópio</em><br>com câmera + acelerômetro</h1>
-    <p>Este console roda a fusão de sensores no seu navegador: a câmera analisa a tela inteira com um campo de fluxo óptico e move o cubo <b style="color:var(--cyan)">para os lados</b> (yaw); o acelerômetro fixa o "para baixo" e move o cubo <b style="color:var(--amber)">para cima e para baixo</b> (pitch); e a própria câmera ajuda o cálculo do acelerômetro em roll e pitch com um filtro preditor-corretor.</p>
-  </div>
+<div id="rotateHint">
+  <div style="font-size:40px;margin-bottom:12px">📱↻</div>
+  Gire o celular pra horizontal antes de colocar no VR box.
+</div>
 
-  <div class="console" id="console">
-    <div class="panel">
-      <div class="panel-head">
-        <span><span class="led on"></span>Gimbal 3D — Saída Fundida</span>
-        <span id="fps-tag">0 FPS</span>
-      </div>
-      <div id="viewport-wrap">
-        <canvas id="three-canvas"></canvas>
-        <div class="viewport-tag">ATT·IND / CUBE-01</div>
-        <div class="viewport-hint">arraste para orbitar a câmera de visualização</div>
-        <div class="axis-hint"><span class="cam-lbl">◀ CÂMERA → lados (yaw)</span><br><span class="acc-lbl">▲ ACELERÔMETRO → cima/baixo (pitch)</span></div>
-      </div>
-      <div class="status-line" id="status-line">Aguardando início — pressione <b>Iniciar Câmera</b> e <b>Ativar Sensores</b> abaixo.</div>
-    </div>
-
-    <div class="sidebar">
-      <div class="cam-box">
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="flow-canvas"></canvas>
-        <div class="cam-overlay" id="cam-overlay">
-          <p>Sem sinal de câmera. Conceda acesso para habilitar o rastreamento de fluxo óptico (yaw).</p>
-        </div>
-      </div>
-
-      <div class="readouts">
-        <div class="readout">
-          <div class="rlabel">Roll (φ)<span class="src acc">ACC+CAM</span></div>
-          <div class="rval" id="val-roll">0.0<small>°</small></div>
-        </div>
-        <div class="readout">
-          <div class="rlabel">Pitch (θ)<span class="src acc">ACC+CAM</span></div>
-          <div class="rval" id="val-pitch">0.0<small>°</small></div>
-        </div>
-        <div class="readout cyan">
-          <div class="rlabel">Yaw (ψ)<span class="src cam">CAM</span></div>
-          <div class="rval" id="val-yaw">0.0<small>°</small></div>
-        </div>
-        <div class="readout cyan">
-          <div class="rlabel">Giro Z<span class="src cam">CAM</span></div>
-          <div class="rval" id="val-gyro">0.0<small>°/s</small></div>
-        </div>
-      </div>
-
-      <div class="strip">
-        <canvas id="trail-canvas" width="600" height="64"></canvas>
-      </div>
-
-      <div class="controls">
-        <div class="btnrow">
-          <button class="primary" id="btn-camera">Iniciar Câmera</button>
-          <button id="btn-motion">Ativar Sensores</button>
-          <button id="btn-reset">Zerar Yaw</button>
-        </div>
-
-        <div class="toggle-row">
-          <span>Modo manual (sem sensores)</span>
-          <button id="btn-manual" style="padding:5px 10px;">Off</button>
-        </div>
-
-        <div class="field">
-          <label>Roll manual <span id="lbl-mroll">0°</span></label>
-          <input type="range" id="man-roll" min="-90" max="90" value="0" disabled>
-        </div>
-        <div class="field">
-          <label>Pitch manual <span id="lbl-mpitch">0°</span></label>
-          <input type="range" id="man-pitch" min="-90" max="90" value="0" disabled>
-        </div>
-        <div class="field">
-          <label>Yaw manual <span id="lbl-myaw">0°</span></label>
-          <input type="range" id="man-yaw" min="-180" max="180" value="0" disabled>
-        </div>
-
-        <div class="field">
-          <label>Calibração K (px→°/s) <span id="lbl-k">0.50</span></label>
-          <input type="range" id="k-calib" min="0.05" max="2" step="0.01" value="0.50">
-        </div>
-        <div class="field">
-          <label>Confiança na câmera (α) <span id="lbl-alpha">0.92</span></label>
-          <input type="range" id="alpha" min="0.5" max="0.99" step="0.01" value="0.92">
-        </div>
-      </div>
-
-      <div class="status-line" id="tex-status"><span class="led ok" id="tex-led"></span>Textura: aguardando câmera</div>
-    </div>
+<div id="overlay">
+  <h2>VR Box — Cubo</h2>
+  <p>
+    Deite o celular na horizontal, ative os sensores, entre em tela cheia e
+    encaixe no visor.
+  </p>
+  <p style="font-size:11px; color:rgba(120,220,255,0.85)">
+    A câmera controla o giro pros lados (yaw), rastreando o quadro inteiro
+    com busca em diamante e consenso entre vários pontos. O acelerômetro
+    controla cima/baixo e a torção (pitch e roll) a partir da gravidade —
+    e a câmera ajusta essa leitura em tempo real (filtro complementar:
+    a câmera prevê o próximo ângulo, o acelerômetro corrige o desvio
+    acumulado). Sem depender de giroscópio de hardware nem de bússola.
+  </p>
+  <div>
+    <button id="startBtn">Ativar sensores</button>
+    <button id="vrBtn" class="secondary">Entrar em modo VR (tela cheia)</button>
   </div>
 </div>
 
-<main>
-
-  <section id="arquitetura">
-    <div class="section-head">
-      <span class="section-num">01</span>
-      <h2>Arquitetura geral</h2>
-      <span class="section-sub">três camadas, dois sensores, um filtro</span>
-    </div>
-    <div class="arch-diagram">
-      <div class="arch-node">
-        <div class="n">MÓDULO 1</div>
-        <h3>Visão · Fluxo Óptico</h3>
-        <p>A cada quadro, uma grade de blocos é comparada com o quadro anterior por correspondência de blocos (block-matching), estimando o deslocamento médio de pixels — a base para a rotação em yaw.</p>
-      </div>
-      <div class="arch-node">
-        <div class="n">MÓDULO 2</div>
-        <h3>Inercial · Acelerômetro</h3>
-        <p>O vetor de gravidade lido do <code>DeviceMotionEvent</code> define roll e pitch absolutos por trigonometria — mas é cego ao giro no eixo vertical (yaw).</p>
-      </div>
-      <div class="arch-node">
-        <div class="n">MÓDULO 3</div>
-        <h3>Fusão · Filtro Complementar</h3>
-        <p>Combina a resposta rápida da câmera com a estabilidade do acelerômetro num único ângulo de saída, renderizado ao vivo no gimbal 3D.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="matematica">
-    <div class="section-head">
-      <span class="section-num">02</span>
-      <h2>O processo matemático</h2>
-      <span class="section-sub">o que o console está calculando agora</span>
-    </div>
-    <div class="grid-2">
-      <div class="card">
-        <h3>A · Fluxo óptico na tela toda</h3>
-        <p>A grade de blocos cobre o quadro inteiro (não um canto ou um único ponto). Cada bloco (x,y) casa com a posição de melhor correspondência no quadro seguinte, gerando um campo vetorial completo (dx<sub>i</sub>, dy<sub>i</sub>) por bloco — visível como as setas na câmera ao lado.</p>
-      </div>
-      <div class="card">
-        <h3>B · Decomposição do campo de fluxo</h3>
-        <p>O campo é separado em translação (pan) e rotação (torção em torno do eixo óptico) por mínimos quadrados. Para uma rotação pura φ, cada ponto se move como (dx,dy) = (−y·φ, x·φ):</p>
-        <div class="eq">pan<span class="k">X</span>,pan<span class="k">Y</span> = mediana(dx<sub>i</sub>), mediana(dy<sub>i</sub>)</div>
-        <div class="eq"><span class="k">φ</span> = Σ(x·dy<sub>r</sub> − y·dx<sub>r</sub>) / Σ(x² + y²)</div>
-        <p>pan<span class="v">X</span> alimenta o <b>yaw</b> (lados), pan<span class="v">Y</span> assiste o <b>pitch</b>, e <span class="v">φ</span> assiste o <b>roll</b> — as três saídas vêm de uma única passada pelo quadro inteiro.</p>
-      </div>
-      <div class="card">
-        <h3>C · Câmera ajudando o acelerômetro</h3>
-        <p>Roll e pitch usam um preditor-corretor: a câmera prevê o próximo ângulo a partir da taxa de fluxo (como faria um giroscópio), e o acelerômetro corrige o desvio acumulado com a leitura absoluta da gravidade:</p>
-        <div class="eq">ângulo<sub>previsto</sub> = ângulo + ω<sub>câmera</sub>·Δt</div>
-        <div class="eq">ângulo = <span class="v">α</span>·ângulo<sub>previsto</sub> + (1−<span class="v">α</span>)·ângulo<sub>acelerômetro</sub></div>
-        <p>α é o slider "Confiança na câmera": perto de 1, a câmera domina a resposta rápida; valores menores deixam o acelerômetro corrigir com mais força.</p>
-      </div>
-      <div class="card">
-        <h3>D · O limite físico do yaw</h3>
-        <p>Girar em torno do eixo vertical não altera a direção da gravidade — por isso o acelerômetro nunca contribui para o yaw. O yaw vem <em>só</em> da câmera (pan<span class="v">X</span>) e é congelado quando a imagem perde textura rastreável.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="codigo">
-    <div class="section-head">
-      <span class="section-num">03</span>
-      <h2>Referência: pipeline em Python (OpenCV)</h2>
-      <span class="section-sub">a versão desktop, com câmera dedicada</span>
-    </div>
-    <div class="codebox">
-      <div class="cb-head"><span>gyro_emulator.py</span><span>Lucas-Kanade · Shi-Tomasi</span></div>
-      <pre><span class="c1">import</span> cv2
-<span class="c1">import</span> numpy <span class="k2">as</span> np
-<span class="c1">import</span> time
-
-cap = cv2.VideoCapture(0)
-lk_params = <span class="s3">dict</span>(winSize=(15, 15), maxLevel=2,
-    criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
-feature_params = <span class="s3">dict</span>(maxCorners=100, qualityLevel=0.3, minDistance=7, blockSize=7)
-
-ret, old_frame = cap.read()
-old_gray = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
-p0 = cv2.goodFeaturesToTrack(old_gray, mask=<span class="k2">None</span>, **feature_params)
-last_time = time.time()
-
-<span class="k2">while</span> <span class="k2">True</span>:
-    ret, frame = cap.read()
-    <span class="k2">if not</span> ret: <span class="k2">break</span>
-    now = time.time(); dt = now - last_time; last_time = now
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    <span class="k2">if</span> p0 <span class="k2">is None</span> <span class="k2">or</span> <span class="s3">len</span>(p0) &lt; 10:
-        p0 = cv2.goodFeaturesToTrack(old_gray, mask=<span class="k2">None</span>, **feature_params)
-
-    <span class="k2">if</span> p0 <span class="k2">is not None</span>:
-        p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, gray, p0, <span class="k2">None</span>, **lk_params)
-        good_new, good_old = p1[st == 1], p0[st == 1]
-        dx = np.mean([n[0] - o[0] <span class="k2">for</span> n, o <span class="k2">in</span> <span class="s3">zip</span>(good_new, good_old)])
-
-        K_calib = 0.5  <span class="c1"># ajuste conforme a lente</span>
-        gyro_z = (dx / dt) * K_calib  <span class="c1"># graus / segundo</span>
-
-        <span class="c1"># fusão opcional com acelerômetro via serial/I2C:</span>
-        <span class="c1"># gyro_z = alpha*(gyro_z) + (1-alpha)*acc_yaw_ref</span>
-
-        p0 = good_new.reshape(-1, 1, 2)
-
-    old_gray = gray.copy()
-    <span class="k2">if</span> cv2.waitKey(1) & 0xFF == <span class="s3">ord</span>(<span class="s3">'q'</span>): <span class="k2">break</span>
-
-cap.release()</pre>
-    </div>
-    <p style="margin-top:14px; font-size:13px; color:var(--text-dim);">O console acima implementa a mesma ideia inteiramente em JavaScript (block-matching em vez de Lucas-Kanade, para rodar sem dependências binárias no navegador), acoplado ao <code>DeviceMotionEvent</code> no lugar de uma IMU física via serial.</p>
-  </section>
-
-  <section id="desafios">
-    <div class="section-head">
-      <span class="section-num">04</span>
-      <h2>Desafios de engenharia</h2>
-      <span class="section-sub">e como este console lida com cada um</span>
-    </div>
-    <table class="spec">
-      <thead><tr><th>Problema</th><th>Descrição</th><th>Mitigação aplicada</th></tr></thead>
-      <tbody>
-        <tr><td>Latência</td><td class="prob">Câmeras rodam a ~30–60 Hz; giroscópios reais chegam a 1000 Hz.</td><td class="fix">Integração contínua entre quadros + suavização exponencial no gimbal.</td></tr>
-        <tr><td>Motion blur</td><td class="prob">Movimentos rápidos borram a imagem e quebram o rastreamento.</td><td class="fix">Filtro complementar reduz automaticamente o peso da câmera quando a variância do fluxo dispara.</td></tr>
-        <tr><td>Falta de textura</td><td class="prob">Superfícies lisas (paredes brancas) não dão pontos para rastrear.</td><td class="fix">Detector de variância de textura congela o yaw e acende o LED de aviso no painel.</td></tr>
-        <tr><td>Distorção de lente</td><td class="prob">Lentes grande-angulares deformam o deslocamento nas bordas.</td><td class="fix">Fora do escopo desta demo — recomenda-se calibração com <code>cv2.calibrateCamera</code> na versão desktop.</td></tr>
-        <tr><td>Roll (rotação no eixo óptico)</td><td class="prob">Fluxo puramente translacional não separa rotação-no-plano de deslocamento lateral.</td><td class="fix">O campo de fluxo é decomposto por mínimos quadrados (translação + rotação); a torção estimada assiste o acelerômetro em vez de ser ignorada.</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-</main>
-
-<footer>
-  GIRO·VIO — protótipo educacional de fusão de sensores no navegador. Câmera e acelerômetro nunca deixam este dispositivo.
-</footer>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-(function(){
-  "use strict";
+// ================= Cena =================
+const scene = new THREE.Scene();
 
-  /* ===================== THREE.JS GIMBAL ===================== */
-  const canvas = document.getElementById('three-canvas');
-  const wrap = document.getElementById('viewport-wrap');
-  const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+const neckPivot = new THREE.Object3D();
+scene.add(neckPivot);
 
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+const NECK_HEIGHT = 0.18;
+const NECK_FORWARD = 0.10;
 
-  // orbit state (custom, no addon dependency)
-  let orbit = {theta: 0.6, phi: 1.15, radius: 7.5};
-  function updateCameraPos(){
-    camera.position.set(
-      orbit.radius*Math.sin(orbit.phi)*Math.sin(orbit.theta),
-      orbit.radius*Math.cos(orbit.phi),
-      orbit.radius*Math.sin(orbit.phi)*Math.cos(orbit.theta)
-    );
-    camera.lookAt(0,0,0);
+const head = new THREE.Object3D();
+head.position.set(0, NECK_HEIGHT, -NECK_FORWARD);
+neckPivot.add(head);
+
+const IPD = 0.32;
+const eyeL = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+const eyeR = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+eyeL.position.set(-IPD/2, 0, 0);
+eyeR.position.set(IPD/2, 0, 0);
+head.add(eyeL, eyeR);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+keyLight.position.set(3, 5, 4);
+scene.add(keyLight);
+
+const skyGeo = new THREE.SphereGeometry(50, 24, 24);
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  uniforms: { top: { value: new THREE.Color(0x1a2233) }, bottom: { value: new THREE.Color(0x05070a) } },
+  vertexShader: `varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `varying vec3 vPos; uniform vec3 top; uniform vec3 bottom;
+    void main(){ float h = normalize(vPos).y * 0.5 + 0.5; gl_FragColor = vec4(mix(bottom, top, h), 1.0); }`
+});
+scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+const grid = new THREE.GridHelper(20, 40, 0x2a3a4a, 0x151f28);
+grid.position.y = -1.5;
+scene.add(grid);
+
+function makeFaceTexture(label, bg) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 10;
+  ctx.strokeRect(5, 5, 246, 246);
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.font = 'bold 120px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, 128, 138);
+  return new THREE.CanvasTexture(c);
+}
+const faceDefs = [
+  { l: 'D', c: '#ff4f4f' }, { l: 'E', c: '#4fff88' },
+  { l: '↑', c: '#4f8cff' }, { l: '↓', c: '#ffe14f' },
+  { l: 'F', c: '#ff4fe1' }, { l: 'T', c: '#4ffff2' },
+];
+const materials = faceDefs.map(f => new THREE.MeshStandardMaterial({ map: makeFaceTexture(f.l, f.c) }));
+const geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+const cube = new THREE.Mesh(geometry, materials);
+cube.position.set(0, 0, -3);
+scene.add(cube);
+const edges = new THREE.EdgesGeometry(geometry);
+const cubeEdges = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+cube.add(cubeEdges);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+let stereoMode = false;
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h);
+  if (stereoMode) {
+    const halfW = w / 2;
+    eyeL.aspect = halfW / h; eyeL.updateProjectionMatrix();
+    eyeR.aspect = halfW / h; eyeR.updateProjectionMatrix();
+  } else {
+    eyeL.aspect = w / h; eyeL.updateProjectionMatrix();
   }
-  updateCameraPos();
+}
+addEventListener('resize', resize);
+resize();
 
-  let dragging=false, lastX=0, lastY=0;
-  canvas.addEventListener('pointerdown', e=>{dragging=true; lastX=e.clientX; lastY=e.clientY; canvas.setPointerCapture(e.pointerId);});
-  canvas.addEventListener('pointerup', ()=>dragging=false);
-  canvas.addEventListener('pointerleave', ()=>dragging=false);
-  canvas.addEventListener('pointermove', e=>{
-    if(!dragging) return;
-    const dx=e.clientX-lastX, dy=e.clientY-lastY;
-    lastX=e.clientX; lastY=e.clientY;
-    orbit.theta -= dx*0.006;
-    orbit.phi = Math.min(Math.max(orbit.phi - dy*0.006, 0.25), Math.PI-0.25);
-    updateCameraPos();
-  });
+// ================= Orientação: câmera = yaw · acelerômetro = pitch/roll =================
+// Este é o sistema do GIRO-VIO reaproveitado aqui, na interface do VR Box:
+//   - YAW (lados): vem só da câmera, que rastreia o quadro inteiro (busca em
+//     diamante multi-ponto com consenso) e integra o deslocamento horizontal
+//     médio. Isso é físico: girar em torno do eixo vertical não muda a
+//     direção da gravidade, então o acelerômetro é cego a essa rotação.
+//   - PITCH/ROLL (cima/baixo e torção): vêm do vetor de gravidade lido no
+//     acelerômetro (`accelerationIncludingGravity`), que dá o ângulo
+//     absoluto sem depender de bússola nem giroscópio de hardware.
+//   - A câmera AJUSTA o acelerômetro: o deslocamento vertical e a rotação-
+//     no-plano do campo de fluxo viram um "previsor" rápido; o acelerômetro
+//     entra como corretor lento (filtro complementar), suavizando ruído sem
+//     deixar o pitch/roll com aquele "salto" só-acelerômetro.
+// Nada disso depende de DeviceOrientationEvent (bússola) nem de
+// rotationRate (giroscópio de hardware) — só câmera + acelerômetro, que era
+// exatamente o pedido: sem depender do sensor de giro do aparelho, e sem a
+// direção errada que a fusão por bússola causava.
 
-  // lights
-  scene.add(new THREE.AmbientLight(0x223344, 1.4));
-  const key = new THREE.PointLight(0xffb238, 1.6, 30); key.position.set(4,5,4); scene.add(key);
-  const rim = new THREE.PointLight(0x4fd8e8, 1.0, 30); rim.position.set(-5,-2,-4); scene.add(rim);
+let yaw = 0, pitch = 0, roll = 0;              // ângulos fundidos, radianos
+let yawOffset = 0, pitchOffset = 0, rollOffset = 0; // aplicados por "Recentralizar"
+const MAX_PITCH = THREE.MathUtils.degToRad(85);
 
-  // floor grid (instrument deck)
-  const grid = new THREE.GridHelper(12, 24, 0x2a3340, 0x1a212b);
-  grid.position.y = -2.4;
-  scene.add(grid);
+let accReady = false;
+let accPitchRaw = 0, accRollRaw = 0;           // radianos, já remapeados pra orientação natural
+let fx = 0, fy = 0, fz = 0, accelFirst = true;
+const ALPHA_LP = 0.15;                          // suavização passa-baixa do acelerômetro
 
-  // gimbal group (this is what rotation is applied to)
-  const gimbal = new THREE.Group();
-  scene.add(gimbal);
+let camPitchPredicted = 0, camRollPredicted = 0;
+const ALPHA_PITCH_CAM = 0.85;  // confiança na câmera pro pitch (predictor-corrector)
+const ALPHA_ROLL_CAM  = 0.6;   // confiança na câmera pro roll
 
-  // cube — wireframe + solid faint fill
-  const cubeGeo = new THREE.BoxGeometry(2.1,2.1,2.1);
-  const cubeMat = new THREE.MeshStandardMaterial({color:0x10151d, metalness:0.3, roughness:0.6, transparent:true, opacity:0.55});
-  const cubeMesh = new THREE.Mesh(cubeGeo, cubeMat);
-  gimbal.add(cubeMesh);
-  const edges = new THREE.EdgesGeometry(cubeGeo);
-  const edgeMat = new THREE.LineBasicMaterial({color:0xffb238, linewidth:2});
-  gimbal.add(new THREE.LineSegments(edges, edgeMat));
+// Remapeia um vetor (x,y) do referencial cru do acelerômetro pro referencial
+// "natural" (topo do aparelho = cima), cancelando o efeito do lock de tela
+// em paisagem — essencial pro VR box, onde o celular fica deitado.
+function screenAngleDeg() {
+  if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
+  if (typeof window.orientation === 'number') return window.orientation;
+  return 0;
+}
+function remapAxesToNatural(x, y, angleDeg) {
+  const a = ((Math.round(angleDeg / 90) * 90) % 360 + 360) % 360;
+  if (a === 90) return { x: -y, y: x };
+  if (a === 180) return { x: -x, y: -y };
+  if (a === 270) return { x: y, y: -x };
+  return { x: x, y: y };
+}
 
-  // face labels via small colored planes to show orientation unambiguously (F/U/R)
-  function faceMarker(color, pos, rot){
-    const g = new THREE.PlaneGeometry(0.7,0.7);
-    const m = new THREE.MeshBasicMaterial({color, side:THREE.DoubleSide});
-    const p = new THREE.Mesh(g,m);
-    p.position.copy(pos); if(rot) p.rotation.copy(rot);
-    return p;
+function handleMotion(e) {
+  const g = e.accelerationIncludingGravity;
+  if (!g || typeof g.x !== 'number') return;
+
+  if (accelFirst) { fx = g.x; fy = g.y; fz = g.z; accelFirst = false; }
+  else {
+    fx += (g.x - fx) * ALPHA_LP;
+    fy += (g.y - fy) * ALPHA_LP;
+    fz += (g.z - fz) * ALPHA_LP;
   }
-  gimbal.add(faceMarker(0xff4136, new THREE.Vector3(0,0,1.06)));                                   // front = red
-  gimbal.add(faceMarker(0x5ce87a, new THREE.Vector3(0,1.06,0), new THREE.Euler(-Math.PI/2,0,0)));  // top = green
+  accReady = true;
 
-  // gimbal rings (three axis rings, like a real mechanical gyroscope)
-  function ring(radius, color, rotFn){
-    const g = new THREE.TorusGeometry(radius, 0.025, 8, 64);
-    const m = new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.55});
-    const r = new THREE.Mesh(g,m);
-    rotFn(r);
-    return r;
+  const rem = remapAxesToNatural(fx, fy, screenAngleDeg());
+  const ax = rem.x, ay = rem.y, az = fz;
+  accPitchRaw = Math.atan2(ay, Math.sqrt(ax * ax + az * az));
+  accRollRaw = Math.atan2(-ax, az);
+}
+
+function fuseOrientation() {
+  if (accReady) {
+    pitch = ALPHA_PITCH_CAM * camPitchPredicted + (1 - ALPHA_PITCH_CAM) * accPitchRaw;
+    roll = ALPHA_ROLL_CAM * camRollPredicted + (1 - ALPHA_ROLL_CAM) * accRollRaw;
+  } else {
+    pitch = camPitchPredicted;
+    roll = camRollPredicted;
   }
-  const ringOuter = ring(1.75, 0x4fd8e8, r=>{});                          // yaw ring (horizontal)
-  ringOuter.rotation.x = Math.PI/2;
-  const ringMid = ring(1.55, 0x8a6420, r=>{});                            // pitch ring
-  const ringInner = ring(1.35, 0xffb238, r=>{ r.rotation.y = Math.PI/2; }); // roll ring
-  scene.add(ringOuter);
-  gimbal.add(ringMid);
-  gimbal.add(ringInner);
+  pitch = THREE.MathUtils.clamp(pitch, -MAX_PITCH, MAX_PITCH);
+  yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); // normaliza -PI..PI
+}
 
-  function resizeRenderer(){
-    const w = wrap.clientWidth, h = wrap.clientHeight;
-    renderer.setSize(w,h,false);
-    camera.aspect = w/h;
-    camera.updateProjectionMatrix();
-  }
-  window.addEventListener('resize', resizeRenderer);
-  resizeRenderer();
+// ================= Câmera: fonte principal do yaw, corretor de pitch/roll =================
+const FINE_W = 48, FINE_H = 36;
+const FOV_H_DEG = 60;
+const FOV_V_DEG = FOV_H_DEG * (FINE_H / FINE_W);
+const DEG_PER_PIXEL_X = FOV_H_DEG / FINE_W;
+const DEG_PER_PIXEL_Y = FOV_V_DEG / FINE_H;
 
-  /* ===================== TRAIL / TELEMETRY STRIP ===================== */
-  const trailCanvas = document.getElementById('trail-canvas');
-  const tctx = trailCanvas.getContext('2d');
-  let trailW = trailCanvas.clientWidth;
-  function resizeTrail(){
-    trailW = trailCanvas.clientWidth;
-    trailCanvas.width = trailW * (window.devicePixelRatio||1);
-    trailCanvas.height = 64 * (window.devicePixelRatio||1);
-    tctx.setTransform(window.devicePixelRatio||1,0,0,window.devicePixelRatio||1,0,0);
-  }
-  window.addEventListener('resize', resizeTrail);
-  resizeTrail();
-  const yawHistory = [];
-  const gyroHistory = [];
-  const MAXHIST = 160;
+const PATCH_HALF = 3;
+const CONSENSUS_TOLERANCE_PX = 1.6;
 
-  function drawTrail(){
-    tctx.clearRect(0,0,trailW,64);
-    tctx.strokeStyle = '#232C38';
-    tctx.beginPath(); tctx.moveTo(0,32); tctx.lineTo(trailW,32); tctx.stroke();
-    if(gyroHistory.length<2) return;
-    tctx.strokeStyle = '#4FD8E8';
-    tctx.lineWidth = 1.5;
-    tctx.beginPath();
-    const maxAbs = Math.max(10, ...gyroHistory.map(v=>Math.abs(v)));
-    gyroHistory.forEach((v,i)=>{
-      const x = (i/(MAXHIST-1))*trailW;
-      const y = 32 - (v/maxAbs)*28;
-      i===0? tctx.moveTo(x,y) : tctx.lineTo(x,y);
-    });
-    tctx.stroke();
-  }
+const GRID_COLS = 14, GRID_ROWS = 10;
+const CELL_MARGIN = PATCH_HALF + 1;
+const MAX_ACTIVE_POINTS = 60;
+const MIN_ACTIVE_POINTS = 6;
+const MIN_POINT_SEPARATION = 2.4;
+const VARIANCE_FILTER_THRESHOLD = 45;
+const YAW_TRUST_MIN = 0.15;
 
-  /* ===================== STATE ===================== */
-  let roll=0, pitch=0, yaw=0;          // fused, degrees
-  let gyroZ=0;                          // deg/s, camera-derived
-  let manualMode=false;
-  let manual = {roll:0, pitch:0, yaw:0};
-  let K_CALIB = 0.5;
-  let ALPHA = 0.92;
-  let lowTexture = true;
-  let camActive=false, motionActive=false;
-  let accRollDeg=0, accPitchDeg=0, accReady=false;
-
-  const els = {
-    roll: document.getElementById('val-roll'),
-    pitch: document.getElementById('val-pitch'),
-    yaw: document.getElementById('val-yaw'),
-    gyro: document.getElementById('val-gyro'),
-    fps: document.getElementById('fps-tag'),
-    status: document.getElementById('status-line'),
-    texStatus: document.getElementById('tex-status'),
-    texLed: document.getElementById('tex-led'),
-  };
-
-  document.getElementById('k-calib').addEventListener('input', e=>{
-    K_CALIB = parseFloat(e.target.value);
-    document.getElementById('lbl-k').textContent = K_CALIB.toFixed(2);
-  });
-  document.getElementById('alpha').addEventListener('input', e=>{
-    ALPHA = parseFloat(e.target.value);
-    document.getElementById('lbl-alpha').textContent = ALPHA.toFixed(2);
-  });
-
-  document.getElementById('btn-reset').addEventListener('click', ()=>{ yaw=0; });
-
-  const manualBtn = document.getElementById('btn-manual');
-  const manualSliders = [document.getElementById('man-roll'), document.getElementById('man-pitch'), document.getElementById('man-yaw')];
-  manualBtn.addEventListener('click', ()=>{
-    manualMode = !manualMode;
-    manualBtn.textContent = manualMode ? 'On' : 'Off';
-    manualBtn.classList.toggle('active', manualMode);
-    manualSliders.forEach(s=>s.disabled = !manualMode);
-  });
-  document.getElementById('man-roll').addEventListener('input', e=>{ manual.roll=+e.target.value; document.getElementById('lbl-mroll').textContent = e.target.value+'°'; });
-  document.getElementById('man-pitch').addEventListener('input', e=>{ manual.pitch=+e.target.value; document.getElementById('lbl-mpitch').textContent = e.target.value+'°'; });
-  document.getElementById('man-yaw').addEventListener('input', e=>{ manual.yaw=+e.target.value; document.getElementById('lbl-myaw').textContent = e.target.value+'°'; });
-
-  /* ===================== CAMERA + OPTICAL FLOW (block matching) ===================== */
-  const video = document.getElementById('video');
-  const flowCanvas = document.getElementById('flow-canvas');
-  const fctx = flowCanvas.getContext('2d');
-  const camOverlay = document.getElementById('cam-overlay');
-
-  const SAMPLE_W = 64, SAMPLE_H = 48;   // downsample grid — covers the WHOLE frame, not a corner
-  const sampleCanvas = document.createElement('canvas');
-  sampleCanvas.width = SAMPLE_W; sampleCanvas.height = SAMPLE_H;
-  const sctx = sampleCanvas.getContext('2d', {willReadFrequently:true});
-  let prevGray = null;
-
-  function toGray(imgData){
-    const g = new Float32Array(SAMPLE_W*SAMPLE_H);
-    const d = imgData.data;
-    for(let i=0, p=0; i<d.length; i+=4, p++){
-      g[p] = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
-    }
-    return g;
-  }
-
-  // Block-matching optical flow computed over the ENTIRE frame (grid of blocks
-  // spanning every region of the image, not a single sample point), followed by
-  // a least-squares decomposition of the flow field into:
-  //   - translation (pan left/right, pan up/down)  -> drives yaw / assists pitch
-  //   - rotation about the viewing axis (twist)     -> assists roll
-  const BS = 4, SEARCH = 3;
-  function blockMatchFlowField(prev, cur){
-    const blocks = []; // {x, y, dx, dy}  x,y = block center in sample-space
-    for(let by=SEARCH; by<SAMPLE_H-BS-SEARCH; by+=BS){
-      for(let bx=SEARCH; bx<SAMPLE_W-BS-SEARCH; bx+=BS){
-        let bestSad = Infinity, bestDx=0, bestDy=0;
-        for(let sy=-SEARCH; sy<=SEARCH; sy++){
-          for(let sx=-SEARCH; sx<=SEARCH; sx++){
-            let sad=0;
-            for(let y=0;y<BS;y++){
-              for(let x=0;x<BS;x++){
-                const p = prev[(by+y)*SAMPLE_W+(bx+x)];
-                const c = cur[(by+y+sy)*SAMPLE_W+(bx+x+sx)];
-                sad += Math.abs(p-c);
-              }
-            }
-            if(sad<bestSad){ bestSad=sad; bestDx=sx; bestDy=sy; }
-          }
-        }
-        blocks.push({x:bx+BS/2, y:by+BS/2, dx:bestDx, dy:bestDy});
-      }
-    }
-    return blocks;
-  }
-
-  function decomposeFlow(blocks){
-    if(blocks.length===0) return {panX:0, panY:0, rot:0};
-    const cx = SAMPLE_W/2, cy = SAMPLE_H/2;
-    // robust translation: median dx/dy across the whole grid
-    const dxs = blocks.map(b=>b.dx).sort((a,b)=>a-b);
-    const dys = blocks.map(b=>b.dy).sort((a,b)=>a-b);
-    const mid = Math.floor(blocks.length/2);
-    const panX = dxs[mid], panY = dys[mid];
-    // rotation about optical axis via least-squares on the *residual* flow
-    // (after removing translation): for a pure rotation phi, (dx,dy) = (-y*phi, x*phi)
-    // => phi = sum(x*dy_res - y*dx_res) / sum(x^2+y^2)
-    let num=0, den=0;
-    for(const b of blocks){
-      const x = b.x-cx, y = b.y-cy;
-      const dxr = b.dx-panX, dyr = b.dy-panY;
-      num += x*dyr - y*dxr;
-      den += x*x + y*y;
-    }
-    const rot = den>0 ? num/den : 0; // radians of twist per frame, small-angle
-    return {panX, panY, rot};
-  }
-
-  function textureVariance(gray){
-    let mean=0; for(let i=0;i<gray.length;i++) mean+=gray[i]; mean/=gray.length;
-    let v=0; for(let i=0;i<gray.length;i++){ const d=gray[i]-mean; v+=d*d; }
-    return v/gray.length;
-  }
-
-  let camDx=0, camDy=0, camRot=0;
-  let lastFlowBlocks = [];
-
-  function processFrame(){
-    if(!camActive) return;
-    sctx.drawImage(video, 0,0, SAMPLE_W, SAMPLE_H);
-    const imgData = sctx.getImageData(0,0,SAMPLE_W,SAMPLE_H);
-    const gray = toGray(imgData);
-
-    const variance = textureVariance(gray);
-    lowTexture = variance < 18;
-    els.texStatus.innerHTML = (lowTexture?'<span class="led bad"></span>Textura BAIXA — yaw congelado, acelerômetro assume sozinho' : '<span class="led ok"></span>Textura OK — analisando a tela toda ('+blocksCount()+' blocos)');
-
-    if(prevGray && !lowTexture){
-      const blocks = blockMatchFlowField(prevGray, gray);
-      const {panX, panY, rot} = decomposeFlow(blocks);
-      camDx = panX; camDy = panY; camRot = rot;
-      lastFlowBlocks = blocks;
-      drawFlowOverlay(blocks);
-    } else {
-      camDx = 0; camDy = 0; camRot = 0;
-      fctx.clearRect(0,0,flowCanvas.width, flowCanvas.height);
-    }
-    prevGray = gray;
-  }
-  function blocksCount(){
-    let n=0;
-    for(let by=SEARCH; by<SAMPLE_H-BS-SEARCH; by+=BS) for(let bx=SEARCH; bx<SAMPLE_W-BS-SEARCH; bx+=BS) n++;
-    return n;
-  }
-
-  function drawFlowOverlay(blocks){
-    const w = flowCanvas.clientWidth, h = flowCanvas.clientHeight;
-    if(flowCanvas.width!==w) flowCanvas.width=w;
-    if(flowCanvas.height!==h) flowCanvas.height=h;
-    fctx.clearRect(0,0,w,h);
-    const sx = w/SAMPLE_W, sy = h/SAMPLE_H, scale=3.2;
-    fctx.lineWidth = 1.3;
-    for(const b of blocks){
-      const mag = Math.hypot(b.dx,b.dy);
-      const px = b.x*sx, py = b.y*sy;
-      const ex = px + b.dx*scale, ey = py + b.dy*scale;
-      const alpha = Math.min(0.15 + mag*0.18, 0.95);
-      fctx.strokeStyle = `rgba(255,178,56,${alpha})`;
-      fctx.beginPath(); fctx.moveTo(px,py); fctx.lineTo(ex,ey); fctx.stroke();
-      fctx.fillStyle = `rgba(79,216,232,${alpha})`;
-      fctx.beginPath(); fctx.arc(px,py,1.4,0,Math.PI*2); fctx.fill();
+const CANDIDATE_CELLS = (() => {
+  const cells = [];
+  const usableW = FINE_W - 2 * CELL_MARGIN;
+  const usableH = FINE_H - 2 * CELL_MARGIN;
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const x = Math.round(CELL_MARGIN + (c + 0.5) * usableW / GRID_COLS);
+      const y = Math.round(CELL_MARGIN + (r + 0.5) * usableH / GRID_ROWS);
+      cells.push({ id: r * GRID_COLS + c, x, y });
     }
   }
-
-  document.getElementById('btn-camera').addEventListener('click', async ()=>{
-    const btn = document.getElementById('btn-camera');
-    if(camActive){
-      video.srcObject && video.srcObject.getTracks().forEach(t=>t.stop());
-      camActive=false; btn.textContent='Iniciar Câmera'; btn.classList.remove('active');
-      camOverlay.classList.remove('hidden');
-      camOverlay.querySelector('p').textContent = 'Câmera pausada.';
-      els.status.innerHTML = 'Câmera pausada.';
-      return;
-    }
-    try{
-      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
-      video.srcObject = stream;
-      camActive = true;
-      btn.textContent = 'Parar Câmera'; btn.classList.add('active');
-      camOverlay.classList.add('hidden');
-      els.status.innerHTML = 'Câmera ativa — aponte para uma superfície com textura (não uma parede lisa).';
-    }catch(err){
-      camOverlay.classList.remove('hidden');
-      camOverlay.querySelector('p').textContent = 'Acesso à câmera bloqueado neste ambiente (' + err.name + '). Se estiver numa prévia de artifact, abra o site publicado numa aba própria e permita a câmera — ou use o Modo Manual abaixo para testar o gimbal.';
-      els.status.innerHTML = 'Falha ao acessar a câmera: <b>' + err.name + '</b>. Experimente o modo manual.';
-    }
-  });
-
-  /* ===================== ACCELEROMETER (DeviceMotion) ===================== */
-  function handleMotion(e){
-    const a = e.accelerationIncludingGravity;
-    if(!a || a.x===null) return;
-    accReady = true;
-    const ax=a.x, ay=a.y, az=a.z;
-    accPitchDeg = THREE.MathUtils.radToDeg(Math.atan2(ay, Math.sqrt(ax*ax+az*az)));
-    accRollDeg = THREE.MathUtils.radToDeg(Math.atan2(-ax, az));
-  }
-
-  document.getElementById('btn-motion').addEventListener('click', async ()=>{
-    const btn = document.getElementById('btn-motion');
-    if(motionActive){
-      window.removeEventListener('devicemotion', handleMotion);
-      motionActive=false; btn.textContent='Ativar Sensores'; btn.classList.remove('active');
-      return;
-    }
-    try{
-      if(typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
-        const res = await DeviceMotionEvent.requestPermission();
-        if(res !== 'granted') throw new Error('permission-denied');
-      }
-      window.addEventListener('devicemotion', handleMotion);
-      motionActive = true;
-      btn.textContent = 'Parar Sensores'; btn.classList.add('active');
-      setTimeout(()=>{
-        if(!accReady){
-          els.status.innerHTML = 'Nenhum dado de acelerômetro chegou (comum em desktop). Use o Modo Manual para testar o gimbal, ou acesse pelo celular.';
-        }
-      }, 1500);
-    }catch(err){
-      els.status.innerHTML = 'Sensores de movimento indisponíveis ou permissão negada. Use o Modo Manual.';
-    }
-  });
-
-  /* ===================== FUSION LOOP ===================== */
-  let lastTick = performance.now();
-  let fpsCounter=0, fpsTime=performance.now();
-
-  function fusionTick(now){
-    const dt = Math.min((now-lastTick)/1000, 0.2);
-    lastTick = now;
-
-    if(camActive){ processFrame(); }
-
-    if(!manualMode){
-      const dtSafe = Math.max(dt, 0.001);
-
-      // --- YAW: camera moves the cube sideways --------------------------------
-      // pure horizontal pan of the flow field, integrated. This is the only
-      // source for yaw (gravity can't see rotation about the vertical axis).
-      const omegaYaw = lowTexture ? 0 : (camDx/dtSafe) * K_CALIB;
-      gyroZ = omegaYaw;
-      yaw += omegaYaw * dt;
-      yaw = ((yaw+180)%360+360)%360 - 180;
-
-      // --- PITCH: accelerometer moves the cube up/down, camera assists -------
-      // Predictor-corrector, the same structure a real gyro+accelerometer pair
-      // uses: the camera's vertical pan rate acts as a fast "predictor" between
-      // accelerometer samples, and the accelerometer's absolute gravity-based
-      // reading corrects any drift the predictor accumulates.
-      const omegaPitchCam = lowTexture ? 0 : (camDy/dtSafe) * K_CALIB * 0.6;
-      const pitchPredicted = pitch + omegaPitchCam*dt;
-      const pitchAccTarget = accReady ? accPitchDeg : pitchPredicted;
-      pitch = ALPHA*pitchPredicted + (1-ALPHA)*pitchAccTarget;
-      pitch = Math.max(-89, Math.min(89, pitch));
-
-      // --- ROLL: accelerometer is the reference, camera assists the calc -----
-      // camRot comes from a least-squares fit of the *rotational* component of
-      // the whole-frame flow field (dx,dy)=(-y·φ,x·φ) — this is the camera
-      // literally helping the accelerometer's roll estimate, the way a gyro
-      // normally would, instead of leaving roll to the accelerometer alone.
-      const omegaRollCam = lowTexture ? 0 : THREE.MathUtils.radToDeg(camRot) / dtSafe * K_CALIB * 0.6;
-      const rollPredicted = roll + omegaRollCam*dt;
-      const rollAccTarget = accReady ? accRollDeg : rollPredicted;
-      const ROLL_ALPHA = 0.6; // trust the camera-assisted predictor more than before
-      roll = ROLL_ALPHA*rollPredicted + (1-ROLL_ALPHA)*rollAccTarget;
-    } else {
-      roll = manual.roll; pitch = manual.pitch; yaw = manual.yaw; gyroZ = 0;
-    }
-
-    // apply to gimbal (aircraft-style: yaw around Y, pitch around X, roll around Z)
-    gimbal.rotation.order = 'YXZ';
-    gimbal.rotation.y = THREE.MathUtils.degToRad(yaw);
-    gimbal.rotation.x = THREE.MathUtils.degToRad(pitch);
-    gimbal.rotation.z = THREE.MathUtils.degToRad(roll);
-    ringMid.rotation.x = THREE.MathUtils.degToRad(pitch)*0.9;
-    ringInner.rotation.z = THREE.MathUtils.degToRad(roll)*0.9;
-
-    renderer.render(scene, camera);
-
-    // HUD
-    els.roll.innerHTML = roll.toFixed(1)+'<small>°</small>';
-    els.pitch.innerHTML = pitch.toFixed(1)+'<small>°</small>';
-    els.yaw.innerHTML = yaw.toFixed(1)+'<small>°</small>';
-    els.gyro.innerHTML = gyroZ.toFixed(1)+'<small>°/s</small>';
-
-    yawHistory.push(yaw); if(yawHistory.length>MAXHIST) yawHistory.shift();
-    gyroHistory.push(gyroZ); if(gyroHistory.length>MAXHIST) gyroHistory.shift();
-    drawTrail();
-
-    fpsCounter++;
-    if(now-fpsTime>500){
-      els.fps.textContent = Math.round(fpsCounter/((now-fpsTime)/1000)) + ' FPS';
-      fpsCounter=0; fpsTime=now;
-    }
-
-    requestAnimationFrame(fusionTick);
-  }
-  requestAnimationFrame(fusionTick);
-
+  return cells;
 })();
+
+let pointState = new Map();
+let cameraActive = false;
+let lastOpticalFlowTickTime = 0;
+const OPTICAL_FLOW_MIN_INTERVAL_MS = 70;
+const videoEl = document.getElementById('camPreview');
+const trackCanvas = document.getElementById('trackCanvas');
+const trackCtx = trackCanvas.getContext('2d');
+
+const fineCanvas = document.createElement('canvas');
+fineCanvas.width = FINE_W; fineCanvas.height = FINE_H;
+const fineCtx = fineCanvas.getContext('2d', { willReadFrequently: true });
+let prevFine = null;
+
+let predictedDx = 0, predictedDy = 0;
+let cameraTrust = 0;
+
+function toGray(ctx, w, h) {
+  const data = ctx.getImageData(0, 0, w, h).data;
+  const gray = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+  }
+  return gray;
+}
+
+function buildIntegral(gray, w, h) {
+  const stride = w + 1;
+  const integral = new Float64Array(stride * (h + 1));
+  const integralSq = new Float64Array(stride * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rowSum = 0, rowSumSq = 0;
+    const rowAbove = y * stride;
+    const rowHere = (y + 1) * stride;
+    for (let x = 0; x < w; x++) {
+      const v = gray[y * w + x];
+      rowSum += v; rowSumSq += v * v;
+      integral[rowHere + x + 1] = integral[rowAbove + x + 1] + rowSum;
+      integralSq[rowHere + x + 1] = integralSq[rowAbove + x + 1] + rowSumSq;
+    }
+  }
+  return { integral, integralSq, stride };
+}
+
+function boxVariance(ii, cx, cy, half) {
+  const { integral, integralSq, stride } = ii;
+  const x0 = cx - half, x1 = cx + half + 1, y0 = cy - half, y1 = cy + half + 1;
+  const sum = integral[y1 * stride + x1] - integral[y0 * stride + x1] - integral[y1 * stride + x0] + integral[y0 * stride + x0];
+  const sumSq = integralSq[y1 * stride + x1] - integralSq[y0 * stride + x1] - integralSq[y1 * stride + x0] + integralSq[y0 * stride + x0];
+  const n = (x1 - x0) * (y1 - y0);
+  const mean = sum / n;
+  return sumSq / n - mean * mean;
+}
+
+function patchSAD(prev, curr, w, h, px, py, dx, dy) {
+  const sx = px + dx, sy = py + dy;
+  if (sx - PATCH_HALF < 0 || sx + PATCH_HALF >= w || sy - PATCH_HALF < 0 || sy + PATCH_HALF >= h) return Infinity;
+  let sad = 0;
+  for (let yy = -PATCH_HALF; yy <= PATCH_HALF; yy++) {
+    const curRow = (py + yy) * w;
+    const refRow = (sy + yy) * w;
+    for (let xx = -PATCH_HALF; xx <= PATCH_HALF; xx++) {
+      sad += Math.abs(curr[curRow + px + xx] - prev[refRow + sx + xx]);
+    }
+  }
+  return sad;
+}
+
+const LDSP = [[-2,0],[2,0],[0,-2],[0,2],[-1,-1],[1,-1],[-1,1],[1,1]];
+const SDSP = [[-1,0],[1,0],[0,-1],[0,1]];
+const MAX_DIAMOND_STEPS = 6;
+
+function diamondSearch(prev, curr, w, h, px, py, seedDx, seedDy) {
+  let cx = Math.round(seedDx), cy = Math.round(seedDy);
+  let bestSad = patchSAD(prev, curr, w, h, px, py, cx, cy);
+  for (let step = 0; step < MAX_DIAMOND_STEPS; step++) {
+    let bestDx = cx, bestDy = cy, improved = false;
+    for (const [ox, oy] of LDSP) {
+      const dx = cx + ox, dy = cy + oy;
+      const sad = patchSAD(prev, curr, w, h, px, py, dx, dy);
+      if (sad < bestSad) { bestSad = sad; bestDx = dx; bestDy = dy; improved = true; }
+    }
+    cx = bestDx; cy = bestDy;
+    if (!improved) break;
+  }
+  let bestDx = cx, bestDy = cy;
+  for (const [ox, oy] of SDSP) {
+    const dx = cx + ox, dy = cy + oy;
+    const sad = patchSAD(prev, curr, w, h, px, py, dx, dy);
+    if (sad < bestSad) { bestSad = sad; bestDx = dx; bestDy = dy; }
+  }
+  const patchSize = (PATCH_HALF * 2 + 1) * (PATCH_HALF * 2 + 1);
+  return { dx: bestDx, dy: bestDy, avgSad: bestSad === Infinity ? Infinity : bestSad / patchSize };
+}
+
+function median(arr) {
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+function weightedMedian(items) {
+  const sorted = [...items].sort((a, b) => a.value - b.value);
+  const totalWeight = sorted.reduce((s, i) => s + i.weight, 0);
+  let acc = 0;
+  for (const it of sorted) {
+    acc += it.weight;
+    if (acc >= totalWeight / 2) return it.value;
+  }
+  return sorted[sorted.length - 1].value;
+}
+
+function selectActivePoints(ii) {
+  const scored = [];
+  for (const cell of CANDIDATE_CELLS) {
+    const variance = boxVariance(ii, cell.x, cell.y, PATCH_HALF);
+    if (variance >= VARIANCE_FILTER_THRESHOLD) scored.push({ cell, variance });
+  }
+  scored.sort((a, b) => b.variance - a.variance);
+
+  const active = [];
+  const minSepSq = MIN_POINT_SEPARATION * MIN_POINT_SEPARATION;
+  for (const s of scored) {
+    if (active.length >= MAX_ACTIVE_POINTS) break;
+    let tooClose = false;
+    for (const p of active) {
+      const ddx = p.x - s.cell.x, ddy = p.y - s.cell.y;
+      if (ddx * ddx + ddy * ddy < minSepSq) { tooClose = true; break; }
+    }
+    if (!tooClose) active.push(s.cell);
+  }
+  return active;
+}
+
+function drawTrackDebug(activePoints, inlierIds) {
+  trackCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
+  for (const cell of activePoints) {
+    trackCtx.fillStyle = inlierIds.has(cell.id) ? 'rgba(120,255,170,0.9)' : 'rgba(255,90,90,0.8)';
+    trackCtx.fillRect(cell.x - 1, cell.y - 1, 2, 2);
+  }
+}
+
+let audioCtx = null;
+let lastBeepTime = 0;
+let wasTrackingGood = true;
+function beep(freq, durationMs) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + durationMs / 1000);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + durationMs / 1000);
+  } catch (e) {}
+}
+
+function opticalFlowTick() {
+  if (!cameraActive) return;
+  fineCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
+  const currFine = toGray(fineCtx, FINE_W, FINE_H);
+
+  if (!prevFine) { prevFine = currFine; cameraTrust = 0; return; }
+
+  const ii = buildIntegral(currFine, FINE_W, FINE_H);
+  const activePoints = selectActivePoints(ii);
+
+  const results = [];
+  for (const cell of activePoints) {
+    const state = pointState.get(cell.id) || { health: 1.0, dx: predictedDx, dy: predictedDy };
+    const r = diamondSearch(prevFine, currFine, FINE_W, FINE_H, cell.x, cell.y, state.dx, state.dy);
+    if (r.avgSad === Infinity) continue;
+    results.push({ id: cell.id, x: cell.x, y: cell.y, dx: r.dx, dy: r.dy, health: state.health });
+  }
+
+  const nextPointState = new Map();
+  const inlierIds = new Set();
+
+  if (results.length >= MIN_ACTIVE_POINTS) {
+    const roughMedDx = median(results.map(r => r.dx));
+    for (const r of results) {
+      const wasInlier = Math.abs(r.dx - roughMedDx) <= CONSENSUS_TOLERANCE_PX;
+      if (wasInlier) inlierIds.add(r.id);
+      const newHealth = THREE.MathUtils.clamp(r.health + (wasInlier ? 0.08 : -0.25), 0.05, 1.0);
+      nextPointState.set(r.id, { health: newHealth, dx: r.dx, dy: r.dy });
+    }
+
+    const weightedItemsX = results.map(r => ({ value: r.dx, weight: nextPointState.get(r.id).health }));
+    const weightedItemsY = results.map(r => ({ value: r.dy, weight: nextPointState.get(r.id).health }));
+    const medDx = weightedMedian(weightedItemsX);
+    const medDy = weightedMedian(weightedItemsY);
+    const consensus = inlierIds.size / results.length;
+
+    predictedDx = medDx; predictedDy = medDy;
+    cameraTrust = consensus;
+
+    // Componente rotacional (torção) por mínimos quadrados no fluxo residual,
+    // igual à decomposição de fluxo do GIRO-VIO: pra uma rotação pura φ em
+    // torno do eixo óptico, (dx,dy) = (-y·φ, x·φ). Isso é o que alimenta o
+    // "ajuste" do roll.
+    let num = 0, den = 0;
+    const cx = FINE_W / 2, cy = FINE_H / 2;
+    for (const r of results) {
+      if (!inlierIds.has(r.id)) continue;
+      const x = r.x - cx, y = r.y - cy;
+      const dxr = r.dx - medDx, dyr = r.dy - medDy;
+      num += x * dyr - y * dxr;
+      den += x * x + y * y;
+    }
+    const rotPerFrame = den > 0 ? num / den : 0; // radianos de torção neste quadro
+
+    if (consensus > YAW_TRUST_MIN) {
+      // YAW: só a câmera, integrado diretamente (delta angular por quadro)
+      const deltaYawDeg = -medDx * DEG_PER_PIXEL_X;
+      yaw += THREE.MathUtils.degToRad(deltaYawDeg) * consensus;
+
+      // Previsor de PITCH e ROLL a partir do fluxo — o acelerômetro corrige
+      // isso no filtro complementar (fuseOrientation).
+      const deltaPitchDeg = -medDy * DEG_PER_PIXEL_Y;
+      camPitchPredicted = pitch + THREE.MathUtils.degToRad(deltaPitchDeg) * consensus;
+      camRollPredicted = roll + rotPerFrame * consensus;
+    } else {
+      camPitchPredicted = pitch;
+      camRollPredicted = roll;
+    }
+
+    document.getElementById('stillState').textContent = `${inlierIds.size}/${results.length} pts`;
+
+    const trackingGoodNow = consensus > 0.5;
+    if (wasTrackingGood && !trackingGoodNow && performance.now() - lastBeepTime > 1500) {
+      beep(280, 150); lastBeepTime = performance.now();
+    }
+    wasTrackingGood = trackingGoodNow;
+  } else {
+    document.getElementById('stillState').textContent = `${results.length} pts (insuficiente)`;
+    cameraTrust *= 0.5;
+    camPitchPredicted = pitch;
+    camRollPredicted = roll;
+  }
+
+  drawTrackDebug(activePoints, inlierIds);
+  pointState = nextPointState;
+  prevFine = currFine;
+}
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: 320, height: 240 }, audio: false
+    });
+    videoEl.srcObject = stream;
+    await videoEl.play();
+    cameraActive = true;
+  } catch (err) {
+    showCameraError(err);
+  }
+}
+
+function showCameraError(err) {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;inset:0;z-index:30;background:rgba(5,7,10,0.97);'
+    + 'color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;'
+    + 'text-align:center;padding:24px;font-size:13px;line-height:1.6;';
+  box.innerHTML = '<div style="font-size:32px;margin-bottom:10px">📷🚫</div>'
+    + '<b>Câmera bloqueada pra este site</b><br>'
+    + 'Toque no ícone de cadeado ao lado do endereço → Permissões → Câmera → Permitir.<br>'
+    + 'Depois feche esta aba e abra de novo.<br>'
+    + '<span style="opacity:0.6;font-size:11px;margin-top:8px;display:block">erro técnico: ' + (err.message || err.name || err) + '</span>'
+    + '<button id="dismissCamErr" style="margin-top:16px;padding:10px 20px;border-radius:8px;border:none;background:#ffb020;color:#071018;font-weight:700">Continuar sem câmera (só acelerômetro)</button>';
+  document.body.appendChild(box);
+  document.getElementById('dismissCamErr').addEventListener('click', () => box.remove());
+}
+
+// ================= Recentralizar =================
+document.getElementById('calibBtn').addEventListener('click', () => {
+  yawOffset = yaw;
+  pitchOffset = pitch;
+  rollOffset = roll;
+  if (navigator.vibrate) navigator.vibrate(30);
+});
+
+// ================= Wake Lock =================
+let wakeLock = null;
+async function requestWakeLock() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }
+  catch (err) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && cameraActive) requestWakeLock();
+});
+
+// ================= Modo VR: tela cheia + paisagem + estéreo =================
+const rotateHint = document.getElementById('rotateHint');
+
+async function enterVrMode() {
+  try { await document.documentElement.requestFullscreen(); } catch (e) {}
+  try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch (e) {}
+
+  stereoMode = true;
+  document.getElementById('eyeDivider').style.display = 'block';
+  document.getElementById('reticle').style.display = 'block';
+  document.getElementById('exitVrBtn').style.display = 'inline-block';
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('camPreview').classList.add('hidden');
+  trackCanvas.classList.add('hidden');
+  rotateHint.classList.add('armed');
+  resize();
+}
+
+function exitVrMode() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
+  stereoMode = false;
+  document.getElementById('eyeDivider').style.display = 'none';
+  document.getElementById('reticle').style.display = 'none';
+  document.getElementById('exitVrBtn').style.display = 'none';
+  document.getElementById('camPreview').classList.remove('hidden');
+  trackCanvas.classList.remove('hidden');
+  rotateHint.classList.remove('armed');
+  resize();
+}
+
+document.getElementById('exitVrBtn').addEventListener('click', exitVrMode);
+
+let sensorsStarted = false;
+
+async function startSensors() {
+  if (sensorsStarted) return;
+  const needsMotionPerm = typeof DeviceMotionEvent !== 'undefined'
+    && typeof DeviceMotionEvent.requestPermission === 'function';
+  try {
+    if (needsMotionPerm) await DeviceMotionEvent.requestPermission();
+  } catch (err) { console.warn(err); }
+
+  window.addEventListener('devicemotion', handleMotion, true);
+  await startCamera();
+  await requestWakeLock();
+  sensorsStarted = true;
+}
+
+document.getElementById('startBtn').addEventListener('click', async () => {
+  await startSensors();
+  document.getElementById('overlay').style.display = 'none';
+});
+
+document.getElementById('vrBtn').addEventListener('click', async () => {
+  await startSensors();
+  await enterVrMode();
+});
+
+// ================= Loop =================
+let lastYawForSpeed = 0, lastYawSpeedTickTime = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (cameraActive) {
+    const nowFlow = performance.now();
+    if (nowFlow - lastOpticalFlowTickTime >= OPTICAL_FLOW_MIN_INTERVAL_MS) {
+      lastOpticalFlowTickTime = nowFlow;
+      opticalFlowTick();
+    }
+  }
+
+  fuseOrientation();
+
+  const dispYaw = yaw - yawOffset;
+  const dispPitch = pitch - pitchOffset;
+  const dispRoll = roll - rollOffset;
+
+  neckPivot.rotation.order = 'YXZ';
+  neckPivot.rotation.set(dispPitch, dispYaw, dispRoll);
+
+  const now = performance.now();
+  const dtSpeed = Math.max(0.001, (now - lastYawSpeedTickTime) / 1000);
+  const yawSpeedDeg = Math.abs(THREE.MathUtils.radToDeg(dispYaw - lastYawForSpeed)) / dtSpeed;
+  lastYawForSpeed = dispYaw;
+  lastYawSpeedTickTime = now;
+  document.getElementById('vignette').style.opacity = Math.min(0.55, yawSpeedDeg / 260).toFixed(2);
+
+  document.getElementById('y').textContent = THREE.MathUtils.radToDeg(dispYaw).toFixed(1);
+  document.getElementById('p').textContent = THREE.MathUtils.radToDeg(dispPitch).toFixed(1);
+  document.getElementById('r').textContent = THREE.MathUtils.radToDeg(dispRoll).toFixed(1);
+  document.getElementById('modeY').textContent = accReady
+    ? `câmera (yaw) + acelerômetro (pitch/roll) · confiança cam ${(cameraTrust * 100).toFixed(0)}%`
+    : 'aguardando acelerômetro…';
+
+  if (stereoMode) {
+    const w = innerWidth, h = innerHeight, halfW = w / 2;
+    renderer.setScissorTest(true);
+    renderer.setViewport(0, 0, halfW, h);
+    renderer.setScissor(0, 0, halfW, h);
+    renderer.render(scene, eyeL);
+    renderer.setViewport(halfW, 0, halfW, h);
+    renderer.setScissor(halfW, 0, halfW, h);
+    renderer.render(scene, eyeR);
+    renderer.setScissorTest(false);
+  } else {
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.render(scene, eyeL);
+  }
+}
+animate();
 </script>
 </body>
 </html>
