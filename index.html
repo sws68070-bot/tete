@@ -53,12 +53,23 @@
 
   #topControls {
     position: fixed; top: 8px; right: 8px; z-index: 6;
-    display: flex; gap: 6px;
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 62vw;
   }
   #topControls button {
     padding: 7px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
     background: rgba(255,255,255,0.08); color: #fff; font-size: 10px;
   }
+  #fpsStepper {
+    display: flex; align-items: center; gap: 4px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px; padding: 0 4px; color: #fff;
+  }
+  #fpsStepper button {
+    padding: 6px 9px !important; font-size: 12px !important;
+    border: none !important; background: transparent !important;
+  }
+  #fpsStepper span.fpsNum { font-size: 10px; font-family: monospace; min-width: 18px; text-align: center; }
+  #fpsStepper span.fpsUnit { font-size: 8px; opacity: 0.6; }
 
   #camPreview {
     position: fixed; bottom: 8px; left: 8px; width: 96px; height: 72px;
@@ -117,6 +128,39 @@
   #calibCancelBtn { background: rgba(255,255,255,0.1); color: #fff; }
   #calibDoneBtn { background: #ffb020; color: #071018; display: none; }
   #calibSummary { display: none; font-size: 12px; color: rgba(120,255,170,0.9); margin-top: 6px; line-height: 1.6; }
+
+  #scenePrepOverlay, #speedTestOverlay {
+    display: none; position: fixed; inset: 0; z-index: 22;
+    background: rgba(5,7,10,0.97); color: #fff; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; padding: 24px;
+  }
+  #scenePrepOverlay.active, #speedTestOverlay.active { display: flex; }
+  #scenePrepOverlay p, #speedTestOverlay p { color: rgba(255,255,255,0.65); font-size: 12px; max-width: 320px; line-height: 1.5; }
+  #scenePrepStrip {
+    display: flex; gap: 6px; overflow-x: auto; max-width: 92vw; padding: 8px 2px; margin: 6px 0; min-height: 42px;
+  }
+  #scenePrepStrip img {
+    width: 56px; height: 42px; object-fit: cover; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.25); flex: 0 0 auto;
+  }
+  #scenePrepCount { font-family: monospace; font-size: 12px; color: rgba(120,220,255,0.9); }
+  #scenePrepButtons, #speedTestButtons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+  #scenePrepButtons button, #speedTestButtons button {
+    padding: 12px 20px; border-radius: 10px; border: none; font-size: 13px; font-weight: 700;
+  }
+  .overlayCancelBtn { background: rgba(255,255,255,0.1); color: #fff; }
+  .overlayDoneBtn { background: #ffb020; color: #071018; }
+
+  #speedTestPhaseLabel { font-size: 16px; font-weight: 700; margin: 10px 0 6px; color: #ffb020; min-height: 44px; }
+  #speedTestDots { display: flex; gap: 8px; margin-bottom: 8px; }
+  #speedTestDots span { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.2); display: block; }
+  #speedTestDots span.done { background: #4fff88; }
+  #speedTestDots span.current { background: #ffb020; }
+  #speedTestLive { font-size: 11px; color: rgba(120,220,255,0.9); font-family: monospace; margin: 4px 0; }
+  #speedTestSummary {
+    display: none; font-size: 12px; color: rgba(120,255,170,0.9); margin-top: 8px;
+    line-height: 1.7; text-align: left; max-width: 320px;
+  }
 </style>
 </head>
 <body>
@@ -133,13 +177,60 @@
 
 <div id="topControls">
   <button id="calibBtn">Recentralizar</button>
+  <button id="scenePrepBtn">Preparar cenário</button>
   <button id="calib360Btn">Calibrar 360°</button>
+  <button id="calibSpeedBtn">Testar velocidade</button>
+  <span id="fpsStepper" title="Fotos por segundo nas rajadas de captura">
+    <button id="fpsMinus">−</button><span class="fpsNum" id="fpsVal">20</span><span class="fpsUnit">f/s</span><button id="fpsPlus">+</button>
+  </span>
   <button id="exitVrBtn" style="display:none">Sair do VR</button>
 </div>
 
 <div id="rotateHint">
   <div style="font-size:40px;margin-bottom:12px">📱↻</div>
   Gire o celular pra horizontal antes de colocar no VR box.
+</div>
+
+<div id="scenePrepOverlay">
+  <h2 style="margin-bottom:4px">Preparar cenário</h2>
+  <p>
+    Antes de calibrar, tire algumas fotos paradas do ambiente ao redor
+    (sem girar o celular). Isso dá ao site uma referência de quão nítido
+    o cenário é normalmente, pra diferenciar depois um borrão de
+    movimento real de um cenário que já é naturalmente pouco detalhado
+    (parede lisa, pouca luz etc). Essa referência também é usada pela
+    "Simulação de velocidade" pra funcionar bem em qualquer ambiente.
+  </p>
+  <div id="scenePrepStrip"></div>
+  <div>Fotos capturadas: <span id="scenePrepCount">0</span></div>
+  <div id="scenePrepButtons">
+    <button id="scenePrepCancelBtn" class="overlayCancelBtn">Fechar</button>
+    <button id="scenePrepCaptureBtn" class="overlayDoneBtn">Capturar foto</button>
+  </div>
+</div>
+
+<div id="speedTestOverlay">
+  <h2 style="margin-bottom:4px">Simulação de velocidade</h2>
+  <p>
+    O celular vai pedir pra girar em 4 direções, cada uma começando
+    devagar e acelerando. A cada instante o site guarda a nitidez do
+    quadro e a velocidade angular medida naquele momento, montando um
+    perfil de "borrão × velocidade" só desse aparelho, dessa câmera e
+    desse ambiente. Depois, no uso normal, quando o rastreamento ver um
+    borrão parecido com algum já visto aqui, ele reconhece a velocidade
+    aproximada na hora e se prepara antes — sem precisar esperar a
+    calibração 360° detectar isso de novo.
+  </p>
+  <div id="speedTestPhaseLabel">Toque em Começar quando estiver pronto</div>
+  <div id="speedTestDots">
+    <span id="dot0"></span><span id="dot1"></span><span id="dot2"></span><span id="dot3"></span>
+  </div>
+  <div id="speedTestLive">velocidade: 0°/s · nitidez: 0</div>
+  <div id="speedTestSummary"></div>
+  <div id="speedTestButtons">
+    <button id="speedTestCancelBtn" class="overlayCancelBtn">Cancelar</button>
+    <button id="speedTestStartBtn" class="overlayDoneBtn">Começar</button>
+  </div>
 </div>
 
 <div id="calibOverlay">
@@ -182,6 +273,13 @@
     da gravidade, e a câmera ajusta essa leitura em tempo real — quanto mais
     o acelerômetro estiver "sujo" (aparelho sendo sacudido), mais peso vai
     pra câmera automaticamente. Torção (roll) desativada por enquanto.
+  </p>
+  <p style="font-size:11px; color:rgba(120,220,255,0.7)">
+    Dica: os botões "Preparar cenário" e "Testar velocidade" (canto
+    superior direito) deixam o rastreamento mais afiado pro seu aparelho e
+    pro ambiente onde você for usar — vale rodar os dois antes de calibrar
+    o 360°. O controle "f/s" ao lado ajusta quantas fotos por segundo as
+    rajadas de captura tiram.
   </p>
   <div>
     <button id="startBtn">Ativar sensores</button>
@@ -522,11 +620,19 @@ function subpixelOffset(prev, curr, w, h, px, py, dx, dy) {
 }
 
 // Nível extra de pirâmide (1/4 da resolução): fica desligado por padrão
-// pra economizar CPU. A calibração 360° liga isso automaticamente se
-// medir que o usuário gira rápido demais pro alcance do nível de meia-res
-// sozinho (deslocamento por quadro maior do que a busca em diamante
-// consegue cobrir mesmo já reduzido pela metade).
+// pra economizar CPU. Duas fontes podem ligá-lo:
+//  1) a calibração 360° (useExtraPyramidLevelBase), que liga
+//     permanentemente se medir que o giro médio do usuário é rápido
+//     demais pro alcance do nível de meia-res sozinho;
+//  2) a simulação de velocidade (perfil borrão×velocidade — ver seção
+//     mais abaixo), que liga temporariamente (fastMotionHoldUntil) assim
+//     que reconhece, quadro a quadro, um nível de borrão parecido com um
+//     giro rápido já visto no teste, sem precisar esperar a calibração
+//     360° detectar isso de novo.
+let useExtraPyramidLevelBase = false;
 let useExtraPyramidLevel = false;
+let fastMotionHoldUntil = 0;
+let lastEstimatedSpeedDegPerSec = null;
 
 function trackPointPyramid(prevFine, currFine, prevHalf, currHalf, prevQuarter, currQuarter, px, py, seedDx, seedDy) {
   let seedHalfDx = seedDx / 2, seedHalfDy = seedDy / 2;
@@ -630,6 +736,24 @@ function opticalFlowTick() {
   if (!cameraActive) return;
   fineCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
   const currFine = toGray(fineCtx, FINE_W, FINE_H);
+
+  // Nitidez do quadro atual (variância do Laplaciano na resolução de
+  // rastreamento). Alimenta a simulação de velocidade quando ela está
+  // ativa e, fora dela, é comparada contra o perfil borrão×velocidade já
+  // aprendido pra estimar a velocidade de giro ao vivo, quadro a quadro.
+  const liveSharpness = laplacianVariance(currFine, FINE_W, FINE_H);
+  sampleSpeedTest(liveSharpness);
+  if (speedBlurProfile.length >= 10 && !speedTestActive) {
+    const estSpeed = estimateSpeedFromSharpness(liveSharpness);
+    if (estSpeed !== null) {
+      lastEstimatedSpeedDegPerSec = estSpeed;
+      if (estSpeed >= CALIB_FAST_SPEED_THRESHOLD_DEGPS) {
+        fastMotionHoldUntil = performance.now() + 400;
+      }
+    }
+  }
+  useExtraPyramidLevel = useExtraPyramidLevelBase || (performance.now() < fastMotionHoldUntil);
+
   const currHalf = downsampleHalf(currFine, FINE_W, FINE_H);
   const currQuarter = useExtraPyramidLevel ? downsampleHalf(currHalf.data, currHalf.w, currHalf.h) : null;
 
@@ -746,6 +870,18 @@ function showCameraError(err) {
   document.getElementById('dismissCamErr').addEventListener('click', () => box.remove());
 }
 
+// ================= Fotos por segundo (rajadas de captura) =================
+// Controla o intervalo entre quadros nas rajadas usadas pela reconstrução
+// de fotos (calibração 360°, preparo de cenário). Mais fotos/seg = rajada
+// mais compacta no tempo (melhor pra alinhar movimento rápido, mas cada
+// quadro individual sofre mais de ruído do sensor em pouca luz); menos
+// fotos/seg = quadros mais espaçados (mais fáceis de alinhar em cenários
+// parados, mas erram fácil se o aparelho estiver girando).
+let photosPerSecond = 20;
+function currentBurstIntervalMs() {
+  return Math.round(1000 / photosPerSecond);
+}
+
 // ================= Calibração 360° =================
 // Fluxo: usuário gira o aparelho um círculo completo. Durante o giro:
 //  1) tiramos uma foto a cada ~30° acumulados, só pra feedback visual
@@ -782,16 +918,16 @@ const CALIB_RING_CIRC = 2 * Math.PI * 66;
 // ---- Reconstrução de fotos borradas ----
 // A câmera do celular gera motion blur natural quando o aparelho está
 // girando (mais ainda em pouca luz, onde o tempo de exposição sobe). Em
-// vez de uma foto só, tiramos uma rajada rápida, medimos a nitidez de
-// cada quadro (variância do Laplaciano — quanto mais alta, mais bordas
-// nítidas), alinhamos os quadros entre si (busca de deslocamento global
-// por SAD) e fundimos só os que baterem certinho. Isso reduz ruído e
-// suaviza o efeito do blur porque cada quadro borra numa direção
-// ligeiramente diferente; o realce de nitidez (unsharp mask) no final
-// recupera contraste de borda que a fusão tende a amolecer.
+// vez de uma foto só, tiramos uma rajada rápida (velocidade configurável
+// pelo controle "f/s" no topo da tela), medimos a nitidez de cada quadro
+// (variância do Laplaciano — quanto mais alta, mais bordas nítidas),
+// alinhamos os quadros entre si (busca de deslocamento global por SAD) e
+// fundimos só os que baterem certinho. Isso reduz ruído e suaviza o
+// efeito do blur porque cada quadro borra numa direção ligeiramente
+// diferente; o realce de nitidez (unsharp mask) no final recupera
+// contraste de borda que a fusão tende a amolecer.
 const PHOTO_W = 96, PHOTO_H = 72;
 const BURST_COUNT = 4;
-const BURST_INTERVAL_MS = 45;
 const ALIGN_SEARCH_RANGE = 6;
 const MIN_USABLE_SHARPNESS = 8;   // abaixo disso, nem a referência presta pra alinhar
 const MAX_ALIGN_SAD = 40;         // acima disso, o quadro não bateu (descarta da fusão)
@@ -813,7 +949,8 @@ function laplacianVariance(gray, w, h) {
 // busca exaustiva de SAD num raio pequeno — a rajada é rápida o
 // suficiente (o alvo é o handshake do usuário, não giro grande) pra um
 // deslocamento de poucos pixels bastar, e o custo é baixo por só rodar
-// nas 30 fotos da calibração, não a cada quadro do rastreamento.
+// nas fotos da calibração/preparo de cenário, não a cada quadro do
+// rastreamento.
 function wholeFrameOffset(refGray, curGray, w, h, range) {
   let bestSad = Infinity, bestDx = 0, bestDy = 0;
   for (let dy = -range; dy <= range; dy++) {
@@ -867,7 +1004,7 @@ async function reconstructPhoto() {
     ctx.drawImage(videoEl, 0, 0, PHOTO_W, PHOTO_H);
     const gray = toGray(ctx, PHOTO_W, PHOTO_H);
     frames.push({ ctx, gray, sharpness: laplacianVariance(gray, PHOTO_W, PHOTO_H) });
-    if (i < BURST_COUNT - 1) await new Promise(r => setTimeout(r, BURST_INTERVAL_MS));
+    if (i < BURST_COUNT - 1) await new Promise(r => setTimeout(r, currentBurstIntervalMs()));
   }
 
   // usa o quadro mais nítido da rajada como referência de alinhamento
@@ -1021,11 +1158,11 @@ function finishCalibration() {
     summaryLines.push(`Giro medido foi pequeno demais (${totalDeg.toFixed(0)}°) — escala não foi ajustada.`);
   }
 
-  const wasExtraOn = useExtraPyramidLevel;
-  useExtraPyramidLevel = calibMaxSpeedDegPerSec >= CALIB_FAST_SPEED_THRESHOLD_DEGPS;
-  if (useExtraPyramidLevel && !wasExtraOn) {
+  const wasExtraOn = useExtraPyramidLevelBase;
+  useExtraPyramidLevelBase = calibMaxSpeedDegPerSec >= CALIB_FAST_SPEED_THRESHOLD_DEGPS;
+  if (useExtraPyramidLevelBase && !wasExtraOn) {
     summaryLines.push(`Velocidade máxima detectada: ${calibMaxSpeedDegPerSec.toFixed(0)}°/s — pirâmide extra (1/4 de resolução) ativada pra acompanhar giros rápidos.`);
-  } else if (!useExtraPyramidLevel) {
+  } else if (!useExtraPyramidLevelBase) {
     summaryLines.push(`Velocidade máxima detectada: ${calibMaxSpeedDegPerSec.toFixed(0)}°/s — dentro do alcance normal, pirâmide extra não é necessária.`);
   }
 
@@ -1051,6 +1188,217 @@ calibDoneBtn.addEventListener('click', () => {
 calibCancelBtn.addEventListener('click', () => {
   if (calibActive) { cancelCalibration(); }
   else { calibOverlayEl.classList.remove('active'); }
+});
+
+// ================= Preparar cenário (baseline de nitidez) =================
+// Fotos paradas do ambiente, tiradas com o mesmo pipeline de rajada +
+// alinhamento + fusão + nitidez usado na calibração 360°. A nitidez
+// medida nessas fotos (na mesma resolução de rastreamento, FINE_W x
+// FINE_H) vira a referência "cenário parado" — usada pra normalizar a
+// nitidez lida durante a simulação de velocidade e o rastreamento ao
+// vivo, já que um cenário naturalmente liso (parede branca, pouca luz)
+// tem nitidez baixa mesmo sem nenhum movimento.
+let sceneBaselineSharpness = null;
+let sceneRefPhotos = [];
+let sceneBaselineSamples = [];
+
+function sharpnessMetric(raw) {
+  return sceneBaselineSharpness ? raw / sceneBaselineSharpness : raw;
+}
+
+const scenePrepOverlayEl = document.getElementById('scenePrepOverlay');
+const scenePrepStripEl = document.getElementById('scenePrepStrip');
+const scenePrepCountEl = document.getElementById('scenePrepCount');
+
+let scenePrepBusy = false;
+async function scenePrepCapture() {
+  if (scenePrepBusy || sceneRefPhotos.length >= 8) return;
+  scenePrepBusy = true;
+  try {
+    const result = await reconstructPhoto();
+    sceneRefPhotos.push(result.dataUrl);
+
+    fineCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
+    const gray = toGray(fineCtx, FINE_W, FINE_H);
+    sceneBaselineSamples.push(laplacianVariance(gray, FINE_W, FINE_H));
+
+    const img = document.createElement('img');
+    img.src = result.dataUrl;
+    scenePrepStripEl.appendChild(img);
+    scenePrepCountEl.textContent = sceneRefPhotos.length;
+  } finally {
+    scenePrepBusy = false;
+  }
+}
+
+function closeScenePrep() {
+  if (sceneBaselineSamples.length) sceneBaselineSharpness = median(sceneBaselineSamples);
+  scenePrepOverlayEl.classList.remove('active');
+}
+
+document.getElementById('scenePrepBtn').addEventListener('click', async () => {
+  await startSensors();
+  scenePrepOverlayEl.classList.add('active');
+});
+document.getElementById('scenePrepCaptureBtn').addEventListener('click', scenePrepCapture);
+document.getElementById('scenePrepCancelBtn').addEventListener('click', closeScenePrep);
+
+// ================= Simulação de velocidade (perfil borrão × velocidade) =================
+// Guia o usuário por 4 fases direcionais (esquerda, direita, cima,
+// baixo), cada uma começando devagar e acelerando. A cada tick do
+// rastreamento durante uma fase, associa a velocidade angular instantânea
+// medida (yaw ou pitch, conforme o eixo da fase) com a nitidez do quadro
+// naquele instante — normalizada pelo baseline do cenário, se disponível.
+// O resultado é um perfil {velocidade, nitidez} só desse aparelho/câmera/
+// ambiente. Fora da simulação, o rastreamento consulta esse perfil pra
+// estimar a velocidade atual a partir só da nitidez do quadro (k-vizinhos
+// mais próximos por nitidez), o que permite reagir a giros rápidos assim
+// que o borrão aparece, sem depender de já ter perdido pontos rastreados.
+//
+// Importante: isso não é uma física real de desfoque nem recupera detalhe
+// perdido — é uma correlação estatística aprendida entre "quanto essa
+// câmera borra" e "quão rápido o aparelho estava girando", específica
+// desse hardware e desse ambiente.
+let speedBlurProfile = [];
+let speedTestActive = false;
+let speedTestFinished = false;
+let speedTestPhaseIdx = 0;
+let speedTestPhaseStart = 0;
+let lastSpeedTestYaw = 0, lastSpeedTestPitch = 0, lastSpeedTestTickTime = 0;
+const SPEED_TEST_PHASES = [
+  { axis: 'yaw', label: 'Gire para a ESQUERDA — comece devagar e vá acelerando' },
+  { axis: 'yaw', label: 'Gire para a DIREITA — comece devagar e vá acelerando' },
+  { axis: 'pitch', label: 'Incline para CIMA — comece devagar e vá acelerando' },
+  { axis: 'pitch', label: 'Incline para BAIXO — comece devagar e vá acelerando' },
+];
+const SPEED_TEST_PHASE_MS = 3000;
+
+const speedTestOverlayEl = document.getElementById('speedTestOverlay');
+const speedTestPhaseLabelEl = document.getElementById('speedTestPhaseLabel');
+const speedTestLiveEl = document.getElementById('speedTestLive');
+const speedTestSummaryEl = document.getElementById('speedTestSummary');
+const speedTestStartBtn = document.getElementById('speedTestStartBtn');
+
+function estimateSpeedFromSharpness(rawSharpness) {
+  if (speedBlurProfile.length < 10) return null;
+  const targetMetric = sharpnessMetric(rawSharpness);
+  const sorted = [...speedBlurProfile].sort((a, b) => Math.abs(a.metric - targetMetric) - Math.abs(b.metric - targetMetric));
+  const k = Math.min(5, sorted.length);
+  let sum = 0;
+  for (let i = 0; i < k; i++) sum += sorted[i].speed;
+  return sum / k;
+}
+
+function startSpeedTest() {
+  speedTestActive = false;
+  speedTestFinished = false;
+  speedTestPhaseIdx = 0;
+  speedBlurProfile = [];
+  speedTestSummaryEl.style.display = 'none';
+  document.querySelectorAll('#speedTestDots span').forEach(d => d.className = '');
+  speedTestPhaseLabelEl.textContent = 'Toque em Começar quando estiver pronto';
+  speedTestLiveEl.textContent = 'velocidade: 0°/s · nitidez: 0';
+  speedTestStartBtn.style.display = 'inline-block';
+  speedTestStartBtn.textContent = 'Começar';
+  speedTestOverlayEl.classList.add('active');
+}
+
+async function beginSpeedTestSequence() {
+  await startSensors();
+  speedTestStartBtn.style.display = 'none';
+  speedTestPhaseIdx = -1;
+  advanceSpeedTestPhase();
+}
+
+function advanceSpeedTestPhase() {
+  speedTestPhaseIdx++;
+  if (speedTestPhaseIdx >= SPEED_TEST_PHASES.length) { finishSpeedTest(); return; }
+  const phase = SPEED_TEST_PHASES[speedTestPhaseIdx];
+  speedTestPhaseLabelEl.textContent = phase.label;
+  document.querySelectorAll('#speedTestDots span').forEach((d, i) => {
+    d.className = i < speedTestPhaseIdx ? 'done' : (i === speedTestPhaseIdx ? 'current' : '');
+  });
+  speedTestPhaseStart = performance.now();
+  lastSpeedTestYaw = yaw; lastSpeedTestPitch = pitch; lastSpeedTestTickTime = performance.now();
+  speedTestActive = true;
+}
+
+function sampleSpeedTest(currFineSharpness) {
+  if (!speedTestActive) return;
+  const phase = SPEED_TEST_PHASES[speedTestPhaseIdx];
+  const now = performance.now();
+  const dt = Math.max(0.001, (now - lastSpeedTestTickTime) / 1000);
+  lastSpeedTestTickTime = now;
+
+  let deltaDeg;
+  if (phase.axis === 'yaw') {
+    deltaDeg = THREE.MathUtils.radToDeg(Math.atan2(Math.sin(yaw - lastSpeedTestYaw), Math.cos(yaw - lastSpeedTestYaw)));
+    lastSpeedTestYaw = yaw;
+  } else {
+    deltaDeg = THREE.MathUtils.radToDeg(pitch - lastSpeedTestPitch);
+    lastSpeedTestPitch = pitch;
+  }
+  const speed = Math.abs(deltaDeg) / dt;
+  if (speed > 3) { // ignora ruído de aparelho quase parado
+    speedBlurProfile.push({ speed, sharpness: currFineSharpness, metric: sharpnessMetric(currFineSharpness), axis: phase.axis });
+  }
+
+  speedTestLiveEl.textContent = `velocidade: ${speed.toFixed(0)}°/s · nitidez: ${currFineSharpness.toFixed(0)}`;
+
+  if (now - speedTestPhaseStart >= SPEED_TEST_PHASE_MS) {
+    speedTestActive = false;
+    advanceSpeedTestPhase();
+  }
+}
+
+function finishSpeedTest() {
+  speedTestActive = false;
+  speedTestFinished = true;
+  document.querySelectorAll('#speedTestDots span').forEach(d => d.className = 'done');
+  speedTestPhaseLabelEl.textContent = 'Concluído!';
+
+  if (speedBlurProfile.length < 10) {
+    speedTestSummaryEl.innerHTML = 'Poucas amostras capturadas — o perfil não foi salvo. Tente girar de forma mais contínua durante cada fase.';
+    speedBlurProfile = [];
+  } else {
+    const speeds = speedBlurProfile.map(s => s.speed);
+    const maxSpeed = Math.max(...speeds);
+    const buckets = [[0,50],[50,120],[120,220],[220,Infinity]];
+    const lines = buckets.map(([lo,hi]) => {
+      const inBucket = speedBlurProfile.filter(s => s.speed >= lo && s.speed < hi);
+      if (!inBucket.length) return null;
+      const avgSharp = inBucket.reduce((a,b)=>a+b.sharpness,0) / inBucket.length;
+      const label = hi === Infinity ? `${lo}+°/s` : `${lo}–${hi}°/s`;
+      return `${label}: nitidez média ${avgSharp.toFixed(0)} (${inBucket.length} amostras)`;
+    }).filter(Boolean);
+    speedTestSummaryEl.innerHTML = `✓ Perfil salvo com ${speedBlurProfile.length} amostras (máx. ${maxSpeed.toFixed(0)}°/s)<br>` + lines.join('<br>')
+      + (sceneBaselineSharpness ? '<br>✓ Normalizado pelo baseline do cenário' : '<br>~ Sem baseline de cenário (rode "Preparar cenário" pra melhorar a portabilidade entre ambientes)');
+  }
+  speedTestSummaryEl.style.display = 'block';
+  speedTestStartBtn.style.display = 'inline-block';
+  speedTestStartBtn.textContent = 'Fechar';
+}
+
+function cancelSpeedTest() {
+  speedTestActive = false;
+  speedTestOverlayEl.classList.remove('active');
+}
+
+document.getElementById('calibSpeedBtn').addEventListener('click', startSpeedTest);
+document.getElementById('speedTestCancelBtn').addEventListener('click', cancelSpeedTest);
+speedTestStartBtn.addEventListener('click', () => {
+  if (speedTestFinished) speedTestOverlayEl.classList.remove('active');
+  else beginSpeedTestSequence();
+});
+
+// ================= Controle de fotos por segundo =================
+document.getElementById('fpsMinus').addEventListener('click', () => {
+  photosPerSecond = Math.max(3, photosPerSecond - 1);
+  document.getElementById('fpsVal').textContent = photosPerSecond;
+});
+document.getElementById('fpsPlus').addEventListener('click', () => {
+  photosPerSecond = Math.min(30, photosPerSecond + 1);
+  document.getElementById('fpsVal').textContent = photosPerSecond;
 });
 
 // ================= Recentralizar =================
@@ -1177,6 +1525,7 @@ function animate() {
   document.getElementById('p').textContent = THREE.MathUtils.radToDeg(smoothPitch).toFixed(1);
   document.getElementById('modeY').textContent = accReady
     ? `câmera (yaw) + acelerômetro (pitch) · acel ${(accTrust * 100).toFixed(0)}% · cam ${(cameraTrust * 100).toFixed(0)}% · análise ${(1000 / Math.max(1, OPTICAL_FLOW_MIN_INTERVAL_MS)).toFixed(0)}Hz`
+      + (lastEstimatedSpeedDegPerSec !== null ? ` · vel.est ${lastEstimatedSpeedDegPerSec.toFixed(0)}°/s` : '')
     : 'aguardando acelerômetro…';
 
   if (stereoMode) {
