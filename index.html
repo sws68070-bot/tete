@@ -111,10 +111,10 @@
   </p>
   <p style="font-size:11px; color:rgba(120,220,255,0.85)">
     Por enquanto só dois eixos: a câmera controla o giro pros lados (yaw),
-    rastreando o quadro inteiro com busca em diamante e consenso entre
-    vários pontos. O acelerômetro controla cima/baixo (pitch) a partir da
-    gravidade, e a câmera ajusta essa leitura em tempo real — quanto mais o
-    acelerômetro estiver "sujo" (aparelho sendo sacudido), mais peso vai
+    rastreando o quadro inteiro com busca em diamante piramidal e consenso
+    entre vários pontos. O acelerômetro controla cima/baixo (pitch) a partir
+    da gravidade, e a câmera ajusta essa leitura em tempo real — quanto mais
+    o acelerômetro estiver "sujo" (aparelho sendo sacudido), mais peso vai
     pra câmera automaticamente. Torção (roll) desativada por enquanto.
   </p>
   <div>
@@ -212,16 +212,6 @@ addEventListener('resize', resize);
 resize();
 
 // ================= Orientação: câmera = yaw · acelerômetro = pitch =================
-// Só dois eixos por enquanto: yaw (lados) e pitch (cima/baixo). Roll foi
-// removido — a cena não torce mais em torno do eixo de visão.
-//   - YAW: só a câmera, integrando o deslocamento horizontal médio do
-//     rastreamento multi-ponto (busca em diamante + consenso).
-//   - PITCH: vetor de gravidade do acelerômetro (`accelerationIncludingGravity`),
-//     ajustado pela câmera (previsor rápido) num filtro complementar cujo
-//     peso muda sozinho: quando o acelerômetro está "sujo" (aparelho sendo
-//     sacudido — a magnitude do vetor foge de ~9,81 m/s²), o peso vai mais
-//     pra câmera; parado, o acelerômetro domina e fica estável.
-
 let yaw = 0, pitch = 0;                          // ângulos fundidos, radianos
 let yawOffset = 0, pitchOffset = 0;               // aplicados por "Recentralizar"
 const MAX_PITCH = THREE.MathUtils.degToRad(85);
@@ -235,8 +225,6 @@ let camPitchPredicted = 0;
 const ALPHA_PITCH_MIN = 0.55; // peso da câmera quando o acelerômetro está limpo (parado)
 const ALPHA_PITCH_MAX = 0.93; // peso da câmera quando o acelerômetro está sujo (sacudindo)
 
-// Remapeia (x,y) do referencial cru do acelerômetro pro referencial natural
-// (topo do aparelho = cima), cancelando o lock de tela em paisagem.
 function screenAngleDeg() {
   if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
   if (typeof window.orientation === 'number') return window.orientation;
@@ -254,16 +242,10 @@ function handleMotion(e) {
   const g = e.accelerationIncludingGravity;
   if (!g || typeof g.x !== 'number') return;
 
-  // confiança na leitura: quanto mais a magnitude foge de 9,81 m/s², mais
-  // o aparelho está sendo acelerado (não só inclinado) — a leitura de
-  // "pra onde é embaixo" fica contaminada por essa aceleração linear.
   const rawMag = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z);
   const deviation = Math.abs(rawMag - 9.81);
   accTrust = THREE.MathUtils.clamp(1 - deviation / 6, 0.15, 1);
 
-  // filtro passa-baixa adaptativo: resposta rápida quando a leitura está
-  // limpa, filtragem mais forte (mais suave) quando está ruidosa — reduz
-  // tremedeira sem acrescentar atraso perceptível parado.
   const lpRate = THREE.MathUtils.lerp(0.35, 0.10, 1 - accTrust);
   if (accelFirst) { fx = g.x; fy = g.y; fz = g.z; accelFirst = false; }
   else {
@@ -323,7 +305,15 @@ const CANDIDATE_CELLS = (() => {
 let pointState = new Map();
 let cameraActive = false;
 let lastOpticalFlowTickTime = 0;
-const OPTICAL_FLOW_MIN_INTERVAL_MS = 70;
+// Antes era um intervalo fixo de 70ms (~14 análises/seg), bem mais lento
+// que os 60fps que a câmera já captura. Agora o intervalo é adaptativo:
+// mede quanto tempo o último tick de fato levou e mira rodar de novo logo
+// depois disso — o mais rápido que o aparelho aguentar — em vez de um
+// número fixo que sobra em celular rápido e trava em celular lento.
+let OPTICAL_FLOW_MIN_INTERVAL_MS = 16; // teto inicial: até ~60 análises/seg
+const OPTICAL_FLOW_FLOOR_MS = 8;       // nunca tenta rodar mais rápido que ~120/seg
+const OPTICAL_FLOW_CEIL_MS = 66;       // nunca deixa cair abaixo de ~15/seg mesmo se o aparelho for bem fraco
+let lastTickDurationMs = 16;
 const videoEl = document.getElementById('camPreview');
 const trackCanvas = document.getElementById('trackCanvas');
 const trackCtx = trackCanvas.getContext('2d');
@@ -414,6 +404,72 @@ function diamondSearch(prev, curr, w, h, px, py, seedDx, seedDy) {
   return { dx: bestDx, dy: bestDy, avgSad: bestSad === Infinity ? Infinity : bestSad / patchSize };
 }
 
+// Pirâmide coarse-to-fine: reduz a imagem pela metade uma vez. Um
+// deslocamento grande em pixels na resolução cheia vira pequeno na
+// metade — a busca em diamante (que só varre poucos pixels ao redor da
+// semente) consegue alcançar movimentos bem mais rápidos assim, sem
+// precisar aumentar MAX_DIAMOND_STEPS (que custaria linear em CPU todo
+// quadro, mesmo parado).
+function downsampleHalf(gray, w, h) {
+  const w2 = w >> 1, h2 = h >> 1;
+  const out = new Float32Array(w2 * h2);
+  for (let y = 0; y < h2; y++) {
+    const sy = y * 2;
+    for (let x = 0; x < w2; x++) {
+      const sx = x * 2;
+      out[y * w2 + x] = (
+        gray[sy * w + sx] + gray[sy * w + sx + 1] +
+        gray[(sy + 1) * w + sx] + gray[(sy + 1) * w + sx + 1]
+      ) * 0.25;
+    }
+  }
+  return { data: out, w: w2, h: h2 };
+}
+
+// Refinamento sub-pixel por interpolação parabólica: ajusta uma parábola
+// nos 3 valores de SAD ao redor do mínimo inteiro em cada eixo e resolve
+// o vértice. Precisão bem maior sem nenhuma busca extra.
+function subpixelOffset(prev, curr, w, h, px, py, dx, dy) {
+  const sL = patchSAD(prev, curr, w, h, px, py, dx - 1, dy);
+  const sR = patchSAD(prev, curr, w, h, px, py, dx + 1, dy);
+  const sC = patchSAD(prev, curr, w, h, px, py, dx, dy);
+  const sU = patchSAD(prev, curr, w, h, px, py, dx, dy - 1);
+  const sD = patchSAD(prev, curr, w, h, px, py, dx, dy + 1);
+  let ox = 0, oy = 0;
+  if (isFinite(sL) && isFinite(sR) && isFinite(sC)) {
+    const denomX = sL - 2 * sC + sR;
+    if (Math.abs(denomX) > 1e-6) ox = 0.5 * (sL - sR) / denomX;
+  }
+  if (isFinite(sU) && isFinite(sD) && isFinite(sC)) {
+    const denomY = sU - 2 * sC + sD;
+    if (Math.abs(denomY) > 1e-6) oy = 0.5 * (sU - sD) / denomY;
+  }
+  ox = THREE.MathUtils.clamp(ox, -0.5, 0.5);
+  oy = THREE.MathUtils.clamp(oy, -0.5, 0.5);
+  return { ox, oy };
+}
+
+// Busca completa de um ponto: nível grosso (meia-res) pra capturar
+// deslocamentos grandes, depois nível fino (res cheia) pra refinar, e por
+// fim sub-pixel. seedDx/seedDy já estão na resolução cheia.
+function trackPointPyramid(prevFine, currFine, prevHalf, currHalf, px, py, seedDx, seedDy) {
+  // nível grosso: coordenadas e semente na metade da resolução
+  const hx = px >> 1, hy = py >> 1;
+  const coarse = diamondSearch(
+    prevHalf.data, currHalf.data, prevHalf.w, prevHalf.h,
+    hx, hy, seedDx / 2, seedDy / 2
+  );
+  const coarseDx = (coarse.avgSad === Infinity ? seedDx / 2 : coarse.dx) * 2;
+  const coarseDy = (coarse.avgSad === Infinity ? seedDy / 2 : coarse.dy) * 2;
+
+  // nível fino: refina ao redor da estimativa grosseira já escalada
+  const fine = diamondSearch(prevFine, currFine, FINE_W, FINE_H, px, py, coarseDx, coarseDy);
+  if (fine.avgSad === Infinity) return null;
+
+  const { ox, oy } = subpixelOffset(prevFine, currFine, FINE_W, FINE_H, px, py, fine.dx, fine.dy);
+  return { dx: fine.dx + ox, dy: fine.dy + oy, avgSad: fine.avgSad };
+}
+
 function median(arr) {
   const s = [...arr].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
@@ -477,12 +533,15 @@ function beep(freq, durationMs) {
   } catch (e) {}
 }
 
+let prevHalf = null;
+
 function opticalFlowTick() {
   if (!cameraActive) return;
   fineCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
   const currFine = toGray(fineCtx, FINE_W, FINE_H);
+  const currHalf = downsampleHalf(currFine, FINE_W, FINE_H);
 
-  if (!prevFine) { prevFine = currFine; cameraTrust = 0; return; }
+  if (!prevFine) { prevFine = currFine; prevHalf = currHalf; cameraTrust = 0; return; }
 
   const ii = buildIntegral(currFine, FINE_W, FINE_H);
   const activePoints = selectActivePoints(ii);
@@ -490,8 +549,8 @@ function opticalFlowTick() {
   const results = [];
   for (const cell of activePoints) {
     const state = pointState.get(cell.id) || { health: 1.0, dx: predictedDx, dy: predictedDy };
-    const r = diamondSearch(prevFine, currFine, FINE_W, FINE_H, cell.x, cell.y, state.dx, state.dy);
-    if (r.avgSad === Infinity) continue;
+    const r = trackPointPyramid(prevFine, currFine, prevHalf, currHalf, cell.x, cell.y, state.dx, state.dy);
+    if (!r) continue;
     results.push({ id: cell.id, x: cell.x, y: cell.y, dx: r.dx, dy: r.dy, health: state.health });
   }
 
@@ -499,9 +558,14 @@ function opticalFlowTick() {
   const inlierIds = new Set();
 
   if (results.length >= MIN_ACTIVE_POINTS) {
+    // Consenso agora usa dx E dy juntos (distância euclidiana até a
+    // mediana bruta), não só dx — pega mais outliers: objetos/pessoas se
+    // movendo no quadro tendem a divergir também no eixo vertical.
     const roughMedDx = median(results.map(r => r.dx));
+    const roughMedDy = median(results.map(r => r.dy));
     for (const r of results) {
-      const wasInlier = Math.abs(r.dx - roughMedDx) <= CONSENSUS_TOLERANCE_PX;
+      const ddx = r.dx - roughMedDx, ddy = r.dy - roughMedDy;
+      const wasInlier = Math.sqrt(ddx * ddx + ddy * ddy) <= CONSENSUS_TOLERANCE_PX;
       if (wasInlier) inlierIds.add(r.id);
       const newHealth = THREE.MathUtils.clamp(r.health + (wasInlier ? 0.08 : -0.25), 0.05, 1.0);
       nextPointState.set(r.id, { health: newHealth, dx: r.dx, dy: r.dy });
@@ -517,12 +581,9 @@ function opticalFlowTick() {
     cameraTrust = consensus;
 
     if (consensus > YAW_TRUST_MIN) {
-      // YAW: só a câmera, delta angular integrado diretamente a cada quadro
       const deltaYawDeg = -medDx * DEG_PER_PIXEL_X;
       yaw += THREE.MathUtils.degToRad(deltaYawDeg) * consensus;
 
-      // Previsor de PITCH a partir do deslocamento vertical do fluxo — o
-      // acelerômetro corrige isso no filtro complementar (fuseOrientation).
       const deltaPitchDeg = -medDy * DEG_PER_PIXEL_Y;
       camPitchPredicted = pitch + THREE.MathUtils.degToRad(deltaPitchDeg) * consensus;
     } else {
@@ -545,13 +606,28 @@ function opticalFlowTick() {
   drawTrackDebug(activePoints, inlierIds);
   pointState = nextPointState;
   prevFine = currFine;
+  prevHalf = currHalf;
 }
 
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: 320, height: 240 }, audio: false
+      video: {
+        facingMode: 'environment', width: 320, height: 240,
+        frameRate: { ideal: 60, min: 30 }
+      }, audio: false
     });
+    // Tenta travar exposição/foco pra evitar que o auto-exposure "pulse"
+    // e gere falso movimento — nem todo navegador/hardware suporta isso,
+    // então falha em silêncio quando não der.
+    try {
+      const track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      const constraints = {};
+      if (caps.exposureMode && caps.exposureMode.includes('continuous')) constraints.exposureMode = 'continuous';
+      if (caps.focusMode && caps.focusMode.includes('continuous')) constraints.focusMode = 'continuous';
+      if (Object.keys(constraints).length) await track.applyConstraints({ advanced: [constraints] });
+    } catch (e) {}
     videoEl.srcObject = stream;
     await videoEl.play();
     cameraActive = true;
@@ -652,8 +728,6 @@ document.getElementById('vrBtn').addEventListener('click', async () => {
 });
 
 // ================= Loop =================
-// Suavização visual leve por cima do estado fundido: reduz tremedeira sem
-// adicionar atraso perceptível (o estado por trás já atualiza rápido).
 let smoothYaw = 0, smoothPitch = 0;
 let lastYawForSpeed = 0, lastYawSpeedTickTime = performance.now();
 const SMOOTH_RATE = 0.4;
@@ -665,7 +739,16 @@ function animate() {
     const nowFlow = performance.now();
     if (nowFlow - lastOpticalFlowTickTime >= OPTICAL_FLOW_MIN_INTERVAL_MS) {
       lastOpticalFlowTickTime = nowFlow;
+      const t0 = performance.now();
       opticalFlowTick();
+      lastTickDurationMs = performance.now() - t0;
+      // mira o próximo intervalo logo acima do custo real medido (com
+      // margem de 20%) — em aparelho rápido isso converge pra perto do
+      // piso (rodando quase a cada quadro), em aparelho lento sobe
+      // sozinho até não competir demais com o render do WebGL.
+      OPTICAL_FLOW_MIN_INTERVAL_MS = THREE.MathUtils.clamp(
+        lastTickDurationMs * 1.2, OPTICAL_FLOW_FLOOR_MS, OPTICAL_FLOW_CEIL_MS
+      );
     }
   }
 
@@ -691,7 +774,7 @@ function animate() {
   document.getElementById('y').textContent = THREE.MathUtils.radToDeg(smoothYaw).toFixed(1);
   document.getElementById('p').textContent = THREE.MathUtils.radToDeg(smoothPitch).toFixed(1);
   document.getElementById('modeY').textContent = accReady
-    ? `câmera (yaw) + acelerômetro (pitch) · confiança acel ${(accTrust * 100).toFixed(0)}% · confiança cam ${(cameraTrust * 100).toFixed(0)}%`
+    ? `câmera (yaw) + acelerômetro (pitch) · acel ${(accTrust * 100).toFixed(0)}% · cam ${(cameraTrust * 100).toFixed(0)}% · análise ${(1000 / Math.max(1, OPTICAL_FLOW_MIN_INTERVAL_MS)).toFixed(0)}Hz`
     : 'aguardando acelerômetro…';
 
   if (stereoMode) {
