@@ -2,347 +2,401 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>DEPTH // cubo por movimento</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Espaço 3D — Sensores</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  canvas { display: block; touch-action: none; }
 
-  :root{
-    --bg:#05070a;
-    --glass: rgba(8,12,16,0.55);
-    --line: rgba(255,255,255,0.14);
-    --signal:#ffb020;
-    --signal-dim: rgba(255,176,32,0.35);
-    --ok:#5eead4;
-    --text:#eef1f3;
-    --text-dim: rgba(238,241,243,0.55);
+  #hud {
+    position: fixed; top: 12px; left: 12px; z-index: 20;
+    background: rgba(10,12,20,0.72); backdrop-filter: blur(6px);
+    border: 1px solid rgba(120,160,255,0.25);
+    border-radius: 10px; padding: 12px 14px;
+    color: #cfe0ff; font-size: 12px; line-height: 1.55;
+    min-width: 190px; pointer-events: none;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+  }
+  #hud h1 { font-size: 13px; color: #8fb4ff; margin-bottom: 6px; letter-spacing: 0.5px; }
+  #hud .row { display: flex; justify-content: space-between; gap: 10px; }
+  #hud .row span:last-child { color: #fff; font-variant-numeric: tabular-nums; }
+  #hud .ok { color: #6cff9a; }
+  #hud .bad { color: #ff7a7a; }
+
+  #painelInicio {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 40%, #12182b 0%, #05060a 75%);
+    flex-direction: column; gap: 18px; padding: 24px; text-align: center;
+  }
+  #painelInicio h2 { color: #cfe0ff; font-size: 22px; font-weight: 600; }
+  #painelInicio p { color: #8a94b3; font-size: 14px; max-width: 360px; line-height: 1.5; }
+  #btnAtivar {
+    background: linear-gradient(135deg, #4f7bff, #7a4fff);
+    color: #fff; border: none; padding: 14px 30px; border-radius: 30px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 6px 20px rgba(79,123,255,0.4);
+    transition: transform 0.15s ease;
+  }
+  #btnAtivar:active { transform: scale(0.96); }
+  #btnDesktop {
+    background: transparent; color: #8a94b3; border: 1px solid #333a55;
+    padding: 10px 22px; border-radius: 30px; font-size: 13px; cursor: pointer;
   }
 
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--text);
-    font-family:'Inter',system-ui,sans-serif;}
-
-  #camera{
-    position:fixed; inset:0; width:100%; height:100%;
-    object-fit:cover; z-index:0; background:#000;
-    filter:saturate(0.92) contrast(1.03);
+  #instrucoesDesktop {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 20; color: #6b7494; font-size: 12px; text-align: center;
+    background: rgba(10,12,20,0.6); padding: 8px 16px; border-radius: 20px;
+    display: none; pointer-events: none;
   }
 
-  #scene{
-    position:fixed; inset:0; width:100%; height:100%; z-index:1;
-    pointer-events:none;
+  #reticulo {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(255,255,255,0.6); z-index: 15; pointer-events: none;
+    box-shadow: 0 0 6px rgba(255,255,255,0.5);
   }
 
-  /* vignette to seat the HUD into the camera feed */
-  #vignette{
-    position:fixed; inset:0; z-index:2; pointer-events:none;
-    background:
-      radial-gradient(120% 90% at 50% 50%, transparent 45%, rgba(0,0,0,0.55) 100%);
-  }
-
-  .scanlines{
-    position:fixed; inset:0; z-index:2; pointer-events:none; opacity:0.05;
-    background:repeating-linear-gradient(0deg, #fff 0px, #fff 1px, transparent 1px, transparent 3px);
-    mix-blend-mode:overlay;
-  }
-
-  /* ---- HUD ---- */
-  .hud{ position:fixed; z-index:5; }
-
-  .corner{
-    position:fixed; width:22px; height:22px; border-color:var(--signal-dim); z-index:5;
-    opacity:0.9;
-  }
-  .corner.tl{ top:16px; left:16px; border-top:2px solid var(--signal); border-left:2px solid var(--signal); }
-  .corner.tr{ top:16px; right:16px; border-top:2px solid var(--signal); border-right:2px solid var(--signal); }
-  .corner.bl{ bottom:16px; left:16px; border-bottom:2px solid var(--signal); border-left:2px solid var(--signal); }
-  .corner.br{ bottom:16px; right:16px; border-bottom:2px solid var(--signal); border-right:2px solid var(--signal); }
-
-  .brand{
-    top:20px; left:44px; font-family:'IBM Plex Mono', monospace;
-    font-size:12px; letter-spacing:0.18em; color:var(--text-dim); text-transform:uppercase;
-  }
-  .brand b{ color:var(--signal); font-weight:600; }
-
-  .clock{
-    top:20px; right:44px; font-family:'IBM Plex Mono', monospace;
-    font-size:12px; letter-spacing:0.1em; color:var(--text-dim);
-    text-align:right;
-  }
-
-  .readout{
-    bottom:52px; left:44px; font-family:'IBM Plex Mono', monospace;
-    display:flex; flex-direction:column; gap:10px;
-    background:var(--glass); backdrop-filter: blur(10px);
-    border:1px solid var(--line); border-radius:4px;
-    padding:14px 18px; min-width:190px;
-  }
-  .readout .row{ display:flex; justify-content:space-between; gap:18px; font-size:12px; }
-  .readout .label{ color:var(--text-dim); letter-spacing:0.08em; }
-  .readout .val{ color:var(--signal); font-weight:600; }
-  .readout .val.ok{ color:var(--ok); }
-
-  .bar-wrap{ width:100%; height:3px; background:rgba(255,255,255,0.12); border-radius:2px; margin-top:2px; overflow:hidden;}
-  .bar{ height:100%; width:0%; background:var(--signal); transition:width 0.15s linear; }
-
-  .caption{
-    bottom:52px; right:44px; max-width:220px; text-align:right;
-    font-size:12px; line-height:1.5; color:var(--text-dim);
-  }
-  .caption b{ color:var(--text); font-weight:600; }
-
-  /* start overlay */
-  #gate{
-    position:fixed; inset:0; z-index:10; display:flex; align-items:center; justify-content:center;
-    background:radial-gradient(120% 120% at 50% 20%, #10151b 0%, #05070a 70%);
-    padding:24px;
-  }
-  #gate .panel{
-    max-width:420px; width:100%; text-align:center;
-    border:1px solid var(--line); border-radius:6px; padding:36px 28px;
-    background:var(--glass); backdrop-filter: blur(6px);
-  }
-  #gate .eyebrow{
-    font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.22em;
-    color:var(--signal); text-transform:uppercase; margin-bottom:14px;
-  }
-  #gate h1{
-    font-size:26px; line-height:1.25; margin:0 0 12px; font-weight:700; letter-spacing:-0.01em;
-  }
-  #gate p{ font-size:14px; color:var(--text-dim); line-height:1.6; margin:0 0 26px; }
-  #gate button{
-    appearance:none; border:1px solid var(--signal); background:var(--signal-dim);
-    color:var(--text); font-family:'Inter',sans-serif; font-weight:600; font-size:14px;
-    padding:13px 26px; border-radius:4px; cursor:pointer; letter-spacing:0.02em;
-    transition:background 0.15s, transform 0.1s;
-    width:100%;
-  }
-  #gate button:active{ transform:scale(0.98); }
-  #gate button:hover{ background:rgba(255,176,32,0.5); }
-  #gate .fine{ margin-top:16px; font-size:11px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; }
-  #gate .err{ margin-top:14px; font-size:12px; color:#ff6b6b; display:none; }
-
-  @media (max-width:520px){
-    .brand{ left:38px; }
-    .clock{ right:38px; }
-    .readout{ left:16px; right:16px; bottom:100px; min-width:0; }
-    .caption{ display:none; }
-    .corner.tl,.corner.tr{ top:12px; }
-  }
-
-  @media (prefers-reduced-motion: reduce){
-    .bar{ transition:none; }
+  #btnReset {
+    position: fixed; top: 12px; right: 12px; z-index: 20;
+    background: rgba(10,12,20,0.72); border: 1px solid rgba(120,160,255,0.25);
+    color: #cfe0ff; padding: 9px 14px; border-radius: 8px; font-size: 12px;
+    cursor: pointer;
   }
 </style>
 </head>
 <body>
 
-<video id="camera" autoplay playsinline muted></video>
-<canvas id="scene"></canvas>
-<div class="vignette" id="vignette"></div>
-<div class="scanlines"></div>
-
-<div class="corner tl"></div>
-<div class="corner tr"></div>
-<div class="corner bl"></div>
-<div class="corner br"></div>
-
-<div class="hud brand">DEPTH <b>// cubo v1</b></div>
-<div class="hud clock" id="clock">--:--:--</div>
-
-<div class="hud readout">
-  <div class="row"><span class="label">PASSOS</span><span class="val" id="steps">0</span></div>
-  <div class="row"><span class="label">DISTÂNCIA (Z)</span><span class="val" id="dist">0.0 m</span></div>
-  <div class="row"><span class="label">INCLINAÇÃO</span><span class="val ok" id="tilt">0° / 0°</span></div>
-  <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+<div id="painelInicio">
+  <h2>🧭 Espaço 3D com Sensores</h2>
+  <p>
+    Este ambiente usa o giroscópio do seu celular para saber para onde você está olhando,
+    e o acelerômetro para detectar seus passos e mover você dentro da cena 3D.
+    No computador, use mouse e teclado (WASD).
+  </p>
+  <button id="btnAtivar">Ativar Sensores e Entrar</button>
+  <button id="btnDesktop">Entrar sem sensores (mouse/teclado)</button>
 </div>
 
-<div class="hud caption">
-  <b>Ande</b> para afastar o cubo.<br>
-  <b>Fique parado</b> e ele volta a se aproximar.<br>
-  Incline o telefone para orbitar.
+<div id="hud" style="display:none;">
+  <h1>STATUS DOS SENSORES</h1>
+  <div class="row"><span>Giroscópio</span><span id="stGiro">—</span></div>
+  <div class="row"><span>Acelerômetro</span><span id="stAcel">—</span></div>
+  <div class="row"><span>Alpha (Z)</span><span id="valAlpha">0°</span></div>
+  <div class="row"><span>Beta (X)</span><span id="valBeta">0°</span></div>
+  <div class="row"><span>Gamma (Y)</span><span id="valGamma">0°</span></div>
+  <div class="row"><span>Passos</span><span id="valPassos">0</span></div>
+  <div class="row"><span>Posição X</span><span id="valPosX">0.00</span></div>
+  <div class="row"><span>Posição Z</span><span id="valPosZ">0.00</span></div>
 </div>
 
-<div id="gate">
-  <div class="panel">
-    <div class="eyebrow">Sensor + Câmera</div>
-    <h1>Um cubo que reage aos seus passos</h1>
-    <p>Este site usa a câmera como fundo e dois sensores de movimento — acelerômetro e giroscópio — para posicionar um cubo em 3D. Ande com o celular e o cubo se afasta; fique parado e ele volta.</p>
-    <button id="startBtn">Ativar câmera e sensores</button>
-    <div class="err" id="err"></div>
-    <div class="fine">Funciona melhor em um smartphone, ao ar livre ou em movimento.</div>
-  </div>
-</div>
+<div id="reticulo"></div>
+<button id="btnReset" style="display:none;">↺ Resetar posição</button>
+<div id="instrucoesDesktop">Clique na tela para travar o mouse · WASD para andar · ESC para soltar</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-(function(){
-  "use strict";
+(function() {
+  'use strict';
 
-  const gate = document.getElementById('gate');
-  const startBtn = document.getElementById('startBtn');
-  const errEl = document.getElementById('err');
-  const video = document.getElementById('camera');
-  const clockEl = document.getElementById('clock');
-  const stepsEl = document.getElementById('steps');
-  const distEl = document.getElementById('dist');
-  const tiltEl = document.getElementById('tilt');
-  const barEl = document.getElementById('bar');
+  // ---------- CONFIG ----------
+  const PASSO_DISTANCIA = 0.65;      // metros avançados por passo detectado
+  const LIMIAR_PASSO = 1.35;         // limiar de aceleração (m/s²) acima da média p/ contar passo
+  const INTERVALO_MIN_PASSO = 320;   // ms mínimos entre passos (evita contagem duplicada)
+  const VEL_TECLADO = 4.0;           // m/s no modo desktop
 
-  // ---------- clock ----------
-  function tickClock(){
-    const d = new Date();
-    clockEl.textContent = d.toLocaleTimeString('pt-BR', {hour12:false});
-  }
-  setInterval(tickClock, 1000);
-  tickClock();
+  // ---------- ESTADO ----------
+  let estado = {
+    usaSensores: false,
+    passos: 0,
+    posX: 0, posZ: 0,
+    yaw: 0, // olhar horizontal acumulado (rad) — usado no modo desktop
+    pitch: 0,
+    alpha: 0, beta: 0, gamma: 0,
+    ultimoPasso: 0,
+    mediaAceleracao: 9.81,
+    ponteiroTravado: false,
+    teclas: {}
+  };
 
-  // ---------- three.js scene ----------
-  const canvas = document.getElementById('scene');
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  // ---------- THREE.JS ----------
+  let cena, camera, renderer, cubo;
 
-  const scene = new THREE.Scene();
-  const camera3d = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 200);
-  camera3d.position.set(0,0,0);
+  function iniciarCena() {
+    cena = new THREE.Scene();
+    cena.background = new THREE.Color(0x0a0e1a);
+    cena.fog = new THREE.Fog(0x0a0e1a, 8, 40);
 
-  // wireframe cube with subtle glow layers, evokes a focus reticle
-  const cubeGroup = new THREE.Group();
-  const geo = new THREE.BoxGeometry(1,1,1);
-  const edges = new THREE.EdgesGeometry(geo);
-  const mat = new THREE.LineBasicMaterial({ color: 0xffb020, transparent:true, opacity:0.95 });
-  const wire = new THREE.LineSegments(edges, mat);
-  cubeGroup.add(wire);
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 5); // altura de "olho humano"
 
-  const mat2 = new THREE.MeshBasicMaterial({ color:0xffb020, transparent:true, opacity:0.05, side:THREE.DoubleSide });
-  const faceMesh = new THREE.Mesh(geo, mat2);
-  cubeGroup.add(faceMesh);
-
-  scene.add(cubeGroup);
-
-  // starting depth (distance from camera, meters-ish)
-  let depth = 3.0;
-  const MIN_DEPTH = 1.2;
-  const MAX_DEPTH = 40;
-
-  function layoutCube(){
-    cubeGroup.position.set(0,0, -depth);
-    const s = 0.6; // base size in meters
-    cubeGroup.scale.set(s,s,s);
-  }
-  layoutCube();
-
-  function onResize(){
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
-    camera3d.aspect = window.innerWidth/window.innerHeight;
-    camera3d.updateProjectionMatrix();
-  }
-  window.addEventListener('resize', onResize);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
 
-  // ---------- motion sensors ----------
-  // Sensor 1: devicemotion (accelerometer) -> step/walk detection -> drives depth
-  // Sensor 2: deviceorientation (gyroscope/compass) -> tilts the cube / orbit
+    // Luzes
+    const luzAmbiente = new THREE.AmbientLight(0x404060, 1.2);
+    cena.add(luzAmbiente);
 
-  let lastAccMag = 9.8;
-  let stepCount = 0;
-  let lastStepTime = 0;
-  let walkEnergy = 0; // smoothed "how much walking is happening right now"
+    const luzDirecional = new THREE.DirectionalLight(0xffffff, 1.0);
+    luzDirecional.position.set(5, 10, 7);
+    luzDirecional.castShadow = true;
+    luzDirecional.shadow.mapSize.set(1024, 1024);
+    cena.add(luzDirecional);
 
-  function handleMotion(e){
-    const a = e.accelerationIncludingGravity || e.acceleration;
-    if(!a || a.x === null) return;
-    const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
-    const delta = mag - lastAccMag;
-    lastAccMag = lastAccMag * 0.9 + mag * 0.1; // low-pass baseline
+    // Chão com grid
+    const chao = new THREE.Mesh(
+      new THREE.PlaneGeometry(60, 60),
+      new THREE.MeshStandardMaterial({ color: 0x141824, roughness: 0.9 })
+    );
+    chao.rotation.x = -Math.PI / 2;
+    chao.receiveShadow = true;
+    cena.add(chao);
 
-    // peak detection for a step
-    const now = performance.now();
-    if(delta > 1.6 && (now - lastStepTime) > 300){
-      stepCount++;
-      lastStepTime = now;
-      depth = Math.min(MAX_DEPTH, depth + 0.9); // walking pushes the cube further away
-      stepsEl.textContent = stepCount;
+    const grid = new THREE.GridHelper(60, 60, 0x3a5fff, 0x1a2038);
+    cena.add(grid);
+
+    // Cubo central
+    cubo = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x4f7bff, roughness: 0.35, metalness: 0.25 })
+    );
+    cubo.position.set(0, 0.6, 0);
+    cubo.castShadow = true;
+    cena.add(cubo);
+
+    // Algumas referências espaciais extras para dar noção de movimento
+    const cores = [0xff5e7a, 0x6cff9a, 0xffd25e, 0xb26cff];
+    for (let i = 0; i < 4; i++) {
+      const marco = new THREE.Mesh(
+        new THREE.ConeGeometry(0.4, 1.2, 4),
+        new THREE.MeshStandardMaterial({ color: cores[i] })
+      );
+      const ang = (i / 4) * Math.PI * 2;
+      marco.position.set(Math.cos(ang) * 8, 0.6, Math.sin(ang) * 8);
+      marco.castShadow = true;
+      cena.add(marco);
     }
 
-    // walk energy for smooth continuous feedback
-    walkEnergy = walkEnergy * 0.85 + Math.min(Math.abs(delta), 6) * 0.15;
+    window.addEventListener('resize', aoRedimensionar);
   }
 
-  let beta = 0, gamma = 0;
-  function handleOrientation(e){
-    if(e.beta === null) return;
-    beta = e.beta;   // front-back tilt, -180..180
-    gamma = e.gamma; // left-right tilt, -90..90
-    tiltEl.textContent = `${beta.toFixed(0)}° / ${gamma.toFixed(0)}°`;
+  function aoRedimensionar() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  // idle decay: when not walking, cube drifts back closer
-  function animate(){
-    requestAnimationFrame(animate);
+  // ---------- ORIENTAÇÃO (giroscópio) ----------
+  // Baseado na técnica padrão do three.js DeviceOrientationControls,
+  // compensando a orientação da tela do dispositivo.
+  const ZEE = new THREE.Vector3(0, 0, 1);
+  const EULER = new THREE.Euler();
+  const Q0 = new THREE.Quaternion();
+  const Q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
-    // decay walkEnergy, and when low, ease depth back toward the resting distance
-    walkEnergy *= 0.96;
-    const resting = 3.0;
-    if(walkEnergy < 0.15){
-      depth += (resting - depth) * 0.01;
+  function orientacaoDispositivoParaQuaternion(alpha, beta, gamma, orient) {
+    EULER.set(THREE.Math.degToRad(beta), THREE.Math.degToRad(alpha), -THREE.Math.degToRad(gamma), 'YXZ');
+    camera.quaternion.setFromEuler(EULER);
+    camera.quaternion.multiply(Q1);
+    camera.quaternion.multiply(Q0.setFromAxisAngle(ZEE, -THREE.Math.degToRad(orient)));
+  }
+
+  function aoOrientar(evento) {
+    if (evento.alpha === null) return;
+    estado.alpha = evento.alpha || 0;
+    estado.beta = evento.beta || 0;
+    estado.gamma = evento.gamma || 0;
+    document.getElementById('stGiro').textContent = 'ativo';
+    document.getElementById('stGiro').className = 'ok';
+  }
+
+  function orientacaoTela() {
+    return (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  }
+
+  // ---------- MOVIMENTO (acelerômetro / detecção de passos) ----------
+  function aoMover(evento) {
+    const acel = evento.accelerationIncludingGravity;
+    if (!acel || acel.x === null) return;
+
+    document.getElementById('stAcel').textContent = 'ativo';
+    document.getElementById('stAcel').className = 'ok';
+
+    const magnitude = Math.sqrt(acel.x * acel.x + acel.y * acel.y + acel.z * acel.z);
+    // Filtro passa-baixa simples para estimar a "linha de base" (gravidade)
+    estado.mediaAceleracao = estado.mediaAceleracao * 0.9 + magnitude * 0.1;
+
+    const agora = Date.now();
+    const desvio = magnitude - estado.mediaAceleracao;
+
+    if (desvio > LIMIAR_PASSO && (agora - estado.ultimoPasso) > INTERVALO_MIN_PASSO) {
+      estado.ultimoPasso = agora;
+      estado.passos++;
+      avancarNaDirecaoDoOlhar(PASSO_DISTANCIA);
     }
-    depth = Math.max(MIN_DEPTH, Math.min(MAX_DEPTH, depth));
-
-    layoutCube();
-
-    // orbit/tilt the cube gently using gyroscope, and rotate it on its own axis
-    cubeGroup.rotation.x = THREE.MathUtils.degToRad(beta * 0.25) + performance.now()*0.00012;
-    cubeGroup.rotation.y = THREE.MathUtils.degToRad(gamma * 0.5) + performance.now()*0.00018;
-
-    // color intensity reflects proximity
-    const proximity = 1 - Math.min(1, (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH));
-    mat.color.setHSL(0.09, 1, 0.45 + proximity*0.2);
-
-    distEl.textContent = depth.toFixed(1) + ' m';
-    barEl.style.width = (proximity*100).toFixed(0) + '%';
-
-    renderer.render(scene, camera3d);
   }
 
-  // ---------- startup flow ----------
-  async function start(){
-    errEl.style.display = 'none';
-    try{
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false
-      });
-      video.srcObject = stream;
-    }catch(camErr){
-      errEl.textContent = 'Não foi possível acessar a câmera: ' + camErr.message;
-      errEl.style.display = 'block';
-      return;
+  function avancarNaDirecaoDoOlhar(distancia) {
+    // Direção horizontal para onde a câmera olha (ignora inclinação vertical)
+    const direcao = new THREE.Vector3();
+    camera.getWorldDirection(direcao);
+    direcao.y = 0;
+    direcao.normalize();
+
+    estado.posX += direcao.x * distancia;
+    estado.posZ += direcao.z * distancia;
+  }
+
+  // ---------- MODO DESKTOP (mouse + teclado) ----------
+  function ativarControlesDesktop() {
+    document.getElementById('instrucoesDesktop').style.display = 'block';
+
+    renderer.domElement.addEventListener('click', () => {
+      renderer.domElement.requestPointerLock();
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      estado.ponteiroTravado = document.pointerLockElement === renderer.domElement;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!estado.ponteiroTravado) return;
+      estado.yaw -= e.movementX * 0.0022;
+      estado.pitch -= e.movementY * 0.0022;
+      estado.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, estado.pitch));
+    });
+
+    window.addEventListener('keydown', (e) => estado.teclas[e.code] = true);
+    window.addEventListener('keyup', (e) => estado.teclas[e.code] = false);
+  }
+
+  function atualizarDesktop(delta) {
+    const euler = new THREE.Euler(estado.pitch, estado.yaw, 0, 'YXZ');
+    camera.quaternion.setFromEuler(euler);
+
+    const frente = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    frente.y = 0; frente.normalize();
+    const direita = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    direita.y = 0; direita.normalize();
+
+    let mover = new THREE.Vector3();
+    if (estado.teclas['KeyW'] || estado.teclas['ArrowUp']) mover.add(frente);
+    if (estado.teclas['KeyS'] || estado.teclas['ArrowDown']) mover.sub(frente);
+    if (estado.teclas['KeyD'] || estado.teclas['ArrowRight']) mover.add(direita);
+    if (estado.teclas['KeyA'] || estado.teclas['ArrowLeft']) mover.sub(direita);
+
+    if (mover.lengthSq() > 0) {
+      mover.normalize().multiplyScalar(VEL_TECLADO * delta);
+      estado.posX += mover.x;
+      estado.posZ += mover.z;
+    }
+  }
+
+  // ---------- LOOP ----------
+  let ultimoTempo = performance.now();
+  function animar() {
+    requestAnimationFrame(animar);
+    const agora = performance.now();
+    const delta = Math.min((agora - ultimoTempo) / 1000, 0.1);
+    ultimoTempo = agora;
+
+    if (estado.usaSensores) {
+      orientacaoDispositivoParaQuaternion(estado.alpha, estado.beta, estado.gamma, orientacaoTela());
+    } else {
+      atualizarDesktop(delta);
     }
 
-    // request motion/orientation permission (iOS 13+)
-    try{
-      if(typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
-        const p = await DeviceMotionEvent.requestPermission();
-        if(p !== 'granted') throw new Error('permissão de movimento negada');
+    camera.position.set(estado.posX, 1.6, estado.posZ);
+
+    cubo.rotation.y += 0.3 * delta;
+    cubo.rotation.x += 0.12 * delta;
+
+    atualizarHUD();
+    renderer.render(cena, camera);
+  }
+
+  function atualizarHUD() {
+    document.getElementById('valAlpha').textContent = estado.alpha.toFixed(1) + '°';
+    document.getElementById('valBeta').textContent = estado.beta.toFixed(1) + '°';
+    document.getElementById('valGamma').textContent = estado.gamma.toFixed(1) + '°';
+    document.getElementById('valPassos').textContent = estado.passos;
+    document.getElementById('valPosX').textContent = estado.posX.toFixed(2);
+    document.getElementById('valPosZ').textContent = estado.posZ.toFixed(2);
+  }
+
+  // ---------- INICIALIZAÇÃO / PERMISSÕES ----------
+  function entrarNoAmbiente(comSensores) {
+    document.getElementById('painelInicio').style.display = 'none';
+    document.getElementById('hud').style.display = 'block';
+    document.getElementById('btnReset').style.display = 'block';
+
+    iniciarCena();
+    estado.usaSensores = comSensores;
+
+    if (comSensores) {
+      window.addEventListener('deviceorientation', aoOrientar, true);
+      window.addEventListener('devicemotion', aoMover, true);
+      setTimeout(() => {
+        if (document.getElementById('stGiro').textContent === '—') {
+          document.getElementById('stGiro').textContent = 'sem sinal';
+          document.getElementById('stGiro').className = 'bad';
+        }
+        if (document.getElementById('stAcel').textContent === '—') {
+          document.getElementById('stAcel').textContent = 'sem sinal';
+          document.getElementById('stAcel').className = 'bad';
+        }
+      }, 2500);
+    } else {
+      document.getElementById('stGiro').textContent = 'desativado';
+      document.getElementById('stAcel').textContent = 'desativado';
+      ativarControlesDesktop();
+    }
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+      estado.posX = 0; estado.posZ = 0; estado.passos = 0;
+    });
+
+    animar();
+  }
+
+  async function solicitarPermissoes() {
+    const precisaPermissao = typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function';
+
+    if (precisaPermissao) {
+      try {
+        const respOrient = await DeviceOrientationEvent.requestPermission();
+        let respMotion = 'granted';
+        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+          respMotion = await DeviceMotionEvent.requestPermission();
+        }
+        if (respOrient === 'granted' && respMotion === 'granted') {
+          entrarNoAmbiente(true);
+        } else {
+          alert('Permissão negada para os sensores. Entrando no modo mouse/teclado.');
+          entrarNoAmbiente(false);
+        }
+      } catch (erro) {
+        console.warn('Erro ao pedir permissão de sensores:', erro);
+        entrarNoAmbiente(false);
       }
-      if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
-        const p2 = await DeviceOrientationEvent.requestPermission();
-        if(p2 !== 'granted') throw new Error('permissão de orientação negada');
-      }
-    }catch(sensorErr){
-      errEl.textContent = 'Sensores de movimento indisponíveis: ' + sensorErr.message + '. A câmera vai funcionar, mas o cubo não vai reagir aos passos.';
-      errEl.style.display = 'block';
+    } else if (window.DeviceOrientationEvent) {
+      // Android e navegadores que não exigem permissão explícita
+      entrarNoAmbiente(true);
+    } else {
+      alert('Este dispositivo não parece ter sensores de orientação. Entrando no modo mouse/teclado.');
+      entrarNoAmbiente(false);
     }
-
-    window.addEventListener('devicemotion', handleMotion, true);
-    window.addEventListener('deviceorientation', handleOrientation, true);
-
-    gate.style.display = 'none';
-    animate();
   }
 
-  startBtn.addEventListener('click', start);
+  document.getElementById('btnAtivar').addEventListener('click', solicitarPermissoes);
+  document.getElementById('btnDesktop').addEventListener('click', () => entrarNoAmbiente(false));
+
 })();
 </script>
 </body>
