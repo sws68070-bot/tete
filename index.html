@@ -97,12 +97,18 @@
     font-size: 24px; font-weight: 700;
   }
   #calibStrip {
-    display: flex; gap: 4px; overflow-x: auto; max-width: 92vw; padding: 8px 0; margin-bottom: 6px;
+    display: flex; gap: 6px; overflow-x: auto; max-width: 92vw; padding: 8px 2px; margin-bottom: 2px;
   }
   #calibStrip img {
     width: 46px; height: 34px; object-fit: cover; border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.25); flex: 0 0 auto;
+    border: 1px solid rgba(255,255,255,0.25); flex: 0 0 auto; display: block;
   }
+  .calibThumb { position: relative; flex: 0 0 auto; }
+  .calibBadge {
+    position: absolute; top: -4px; right: -4px; width: 14px; height: 14px; border-radius: 50%;
+    color: #071018; font-size: 9px; font-weight: 900; display: flex; align-items: center; justify-content: center;
+  }
+  #calibStripLegend { font-size: 9px; color: rgba(255,255,255,0.4); margin-bottom: 6px; }
   #calibSpeed { font-size: 11px; color: rgba(120,220,255,0.9); font-family: monospace; margin-bottom: 4px; }
   #calibButtons { display: flex; gap: 8px; margin-top: 10px; }
   #calibButtons button {
@@ -140,9 +146,11 @@
   <h2 style="margin-bottom:4px">Calibração 360°</h2>
   <p>
     Segure o celular à sua frente, com a câmera apontando pra frente, e gire
-    devagar em um círculo completo até voltar pro ponto de partida. O site
-    vai tirar fotos ao longo do giro e usar isso pra ajustar a escala
-    grau/pixel da câmera e a velocidade máxima que consegue acompanhar.
+    devagar em um círculo completo até voltar pro ponto de partida. A cada
+    ~30° o site tira uma rajada de fotos, alinha os quadros entre si e
+    combina os que baterem certinho pra reduzir o borrão de movimento —
+    depois afia o resultado. Isso ajusta a escala grau/pixel da câmera e a
+    velocidade máxima que o rastreamento consegue acompanhar.
   </p>
   <div id="calibRingWrap">
     <svg width="150" height="150">
@@ -153,6 +161,7 @@
   </div>
   <div id="calibSpeed">velocidade: 0°/s · máxima: 0°/s</div>
   <div id="calibStrip"></div>
+  <div id="calibStripLegend">✓ combinada de vários quadros · ~ só nitidez ajustada (giro rápido demais pra alinhar)</div>
   <div id="calibSummary"></div>
   <div id="calibButtons">
     <button id="calibCancelBtn">Cancelar</button>
@@ -770,16 +779,180 @@ const calibDoneBtn = document.getElementById('calibDoneBtn');
 const calibCancelBtn = document.getElementById('calibCancelBtn');
 const CALIB_RING_CIRC = 2 * Math.PI * 66;
 
-function calibCapturePhoto() {
-  if (calibPhotos.length >= 16) return; // limite de memória
-  const shot = document.createElement('canvas');
-  shot.width = 96; shot.height = 72;
-  shot.getContext('2d').drawImage(videoEl, 0, 0, 96, 72);
-  calibPhotos.push(shot.toDataURL('image/jpeg', 0.6));
-  const img = document.createElement('img');
-  img.src = calibPhotos[calibPhotos.length - 1];
-  calibStripEl.appendChild(img);
-  calibStripEl.scrollLeft = calibStripEl.scrollWidth;
+// ---- Reconstrução de fotos borradas ----
+// A câmera do celular gera motion blur natural quando o aparelho está
+// girando (mais ainda em pouca luz, onde o tempo de exposição sobe). Em
+// vez de uma foto só, tiramos uma rajada rápida, medimos a nitidez de
+// cada quadro (variância do Laplaciano — quanto mais alta, mais bordas
+// nítidas), alinhamos os quadros entre si (busca de deslocamento global
+// por SAD) e fundimos só os que baterem certinho. Isso reduz ruído e
+// suaviza o efeito do blur porque cada quadro borra numa direção
+// ligeiramente diferente; o realce de nitidez (unsharp mask) no final
+// recupera contraste de borda que a fusão tende a amolecer.
+const PHOTO_W = 96, PHOTO_H = 72;
+const BURST_COUNT = 4;
+const BURST_INTERVAL_MS = 45;
+const ALIGN_SEARCH_RANGE = 6;
+const MIN_USABLE_SHARPNESS = 8;   // abaixo disso, nem a referência presta pra alinhar
+const MAX_ALIGN_SAD = 40;         // acima disso, o quadro não bateu (descarta da fusão)
+
+function laplacianVariance(gray, w, h) {
+  let sum = 0, sumSq = 0, n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const c = gray[y * w + x];
+      const lap = gray[(y - 1) * w + x] + gray[(y + 1) * w + x] + gray[y * w + x - 1] + gray[y * w + x + 1] - 4 * c;
+      sum += lap; sumSq += lap * lap; n++;
+    }
+  }
+  const mean = sum / n;
+  return sumSq / n - mean * mean;
+}
+
+// Estimativa de deslocamento global entre dois quadros pequenos, por
+// busca exaustiva de SAD num raio pequeno — a rajada é rápida o
+// suficiente (o alvo é o handshake do usuário, não giro grande) pra um
+// deslocamento de poucos pixels bastar, e o custo é baixo por só rodar
+// nas 30 fotos da calibração, não a cada quadro do rastreamento.
+function wholeFrameOffset(refGray, curGray, w, h, range) {
+  let bestSad = Infinity, bestDx = 0, bestDy = 0;
+  for (let dy = -range; dy <= range; dy++) {
+    for (let dx = -range; dx <= range; dx++) {
+      let sad = 0, cnt = 0;
+      for (let y = range; y < h - range; y += 2) {
+        const curRow = y * w, refRow = (y + dy) * w;
+        for (let x = range; x < w - range; x += 2) {
+          sad += Math.abs(curGray[curRow + x] - refGray[refRow + x + dx]);
+          cnt++;
+        }
+      }
+      const avg = sad / cnt;
+      if (avg < bestSad) { bestSad = avg; bestDx = dx; bestDy = dy; }
+    }
+  }
+  return { dx: bestDx, dy: bestDy, sad: bestSad };
+}
+
+// Unsharp mask simples: borra com média 3x3 e devolve original + amount*(original - borrado).
+function sharpenImageData(imgData, w, h, amount) {
+  const src = imgData.data;
+  const out = new Uint8ClampedArray(src.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        let sum = 0, cnt = 0;
+        for (let oy = -1; oy <= 1; oy++) {
+          const yy = y + oy; if (yy < 0 || yy >= h) continue;
+          for (let ox = -1; ox <= 1; ox++) {
+            const xx = x + ox; if (xx < 0 || xx >= w) continue;
+            sum += src[(yy * w + xx) * 4 + c]; cnt++;
+          }
+        }
+        const blurred = sum / cnt;
+        out[idx + c] = src[idx + c] + amount * (src[idx + c] - blurred);
+      }
+      out[idx + 3] = src[idx + 3];
+    }
+  }
+  return new ImageData(out, w, h);
+}
+
+async function reconstructPhoto() {
+  const frames = [];
+  for (let i = 0; i < BURST_COUNT; i++) {
+    const c = document.createElement('canvas');
+    c.width = PHOTO_W; c.height = PHOTO_H;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(videoEl, 0, 0, PHOTO_W, PHOTO_H);
+    const gray = toGray(ctx, PHOTO_W, PHOTO_H);
+    frames.push({ ctx, gray, sharpness: laplacianVariance(gray, PHOTO_W, PHOTO_H) });
+    if (i < BURST_COUNT - 1) await new Promise(r => setTimeout(r, BURST_INTERVAL_MS));
+  }
+
+  // usa o quadro mais nítido da rajada como referência de alinhamento
+  let refIdx = 0;
+  for (let i = 1; i < frames.length; i++) if (frames[i].sharpness > frames[refIdx].sharpness) refIdx = i;
+  const ref = frames[refIdx];
+
+  let fused = false, usedCount = 0;
+  const accum = new Float32Array(PHOTO_W * PHOTO_H * 4);
+
+  if (ref.sharpness >= MIN_USABLE_SHARPNESS) {
+    for (let i = 0; i < frames.length; i++) {
+      let dx = 0, dy = 0;
+      if (i !== refIdx) {
+        const off = wholeFrameOffset(ref.gray, frames[i].gray, PHOTO_W, PHOTO_H, ALIGN_SEARCH_RANGE);
+        if (off.sad > MAX_ALIGN_SAD) continue; // não bateu — descarta esse quadro
+        dx = off.dx; dy = off.dy;
+      }
+      const data = frames[i].ctx.getImageData(0, 0, PHOTO_W, PHOTO_H).data;
+      for (let y = 0; y < PHOTO_H; y++) {
+        const sy = y + dy; if (sy < 0 || sy >= PHOTO_H) continue;
+        for (let x = 0; x < PHOTO_W; x++) {
+          const sx = x + dx; if (sx < 0 || sx >= PHOTO_W) continue;
+          const s = (sy * PHOTO_W + sx) * 4, d = (y * PHOTO_W + x) * 4;
+          accum[d] += data[s]; accum[d + 1] += data[s + 1]; accum[d + 2] += data[s + 2]; accum[d + 3] += 1;
+        }
+      }
+      usedCount++;
+    }
+  }
+
+  let finalImgData;
+  if (usedCount >= 2) {
+    fused = true;
+    const out = new Uint8ClampedArray(PHOTO_W * PHOTO_H * 4);
+    for (let i = 0; i < PHOTO_W * PHOTO_H; i++) {
+      const idx = i * 4;
+      const n = Math.max(1, accum[idx + 3]);
+      out[idx] = accum[idx] / n; out[idx + 1] = accum[idx + 1] / n; out[idx + 2] = accum[idx + 2] / n; out[idx + 3] = 255;
+    }
+    finalImgData = new ImageData(out, PHOTO_W, PHOTO_H);
+  } else {
+    finalImgData = ref.ctx.getImageData(0, 0, PHOTO_W, PHOTO_H);
+  }
+
+  const sharpened = sharpenImageData(finalImgData, PHOTO_W, PHOTO_H, fused ? 0.5 : 0.85);
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = PHOTO_W; outCanvas.height = PHOTO_H;
+  outCanvas.getContext('2d').putImageData(sharpened, 0, 0);
+
+  return {
+    dataUrl: outCanvas.toDataURL('image/jpeg', 0.75),
+    fused,
+    beforeSharpness: ref.sharpness,
+  };
+}
+
+let calibCaptureBusy = false;
+async function calibCapturePhoto() {
+  if (calibPhotos.length >= 16 || calibCaptureBusy) return;
+  calibCaptureBusy = true;
+  try {
+    const result = await reconstructPhoto();
+    calibPhotos.push(result.dataUrl);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'calibThumb';
+    const img = document.createElement('img');
+    img.src = result.dataUrl;
+    wrap.appendChild(img);
+
+    const badge = document.createElement('div');
+    badge.className = 'calibBadge';
+    badge.textContent = result.fused ? '✓' : '~';
+    badge.style.background = result.fused ? '#4fff88' : '#ffe14f';
+    badge.title = result.fused
+      ? 'Reconstruída combinando vários quadros da rajada'
+      : 'Giro rápido demais pra alinhar os quadros — só nitidez foi ajustada';
+    wrap.appendChild(badge);
+
+    calibStripEl.appendChild(wrap);
+    calibStripEl.scrollLeft = calibStripEl.scrollWidth;
+  } finally {
+    calibCaptureBusy = false;
+  }
 }
 
 function updateCalibration(deltaYawDeg) {
