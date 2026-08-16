@@ -90,22 +90,24 @@
     gap:1px;
     background:var(--hairline);
     border:1px solid var(--hairline);
+    height:calc(100vh - 64px);
+    min-height:560px;
   }
-  @media (max-width:920px){ .console{grid-template-columns:1fr;} }
+  @media (max-width:920px){ .console{grid-template-columns:1fr; height:auto; min-height:0;} }
 
-  .panel{background:var(--panel); position:relative;}
+  .panel{background:var(--panel); position:relative; display:flex; flex-direction:column; min-height:0; height:100%;}
   .panel-head{
     display:flex; align-items:center; justify-content:space-between;
     padding:10px 16px; border-bottom:1px solid var(--hairline);
     font-family:var(--mono); font-size:11px; letter-spacing:.1em; color:var(--text-dim);
-    text-transform:uppercase;
+    text-transform:uppercase; flex:0 0 auto;
   }
   .panel-head .led{width:6px;height:6px;border-radius:50%; background:var(--hairline-bright); display:inline-block; margin-right:6px;}
   .led.on{background:var(--amber); box-shadow:0 0 6px var(--amber);}
   .led.bad{background:var(--red); box-shadow:0 0 6px var(--red);}
   .led.ok{background:#5CE87A; box-shadow:0 0 6px #5CE87A;}
 
-  #viewport-wrap{position:relative; aspect-ratio:4/3; width:100%;}
+  #viewport-wrap{position:relative; width:100%; flex:1 1 auto; min-height:0;}
   #three-canvas{display:block; width:100%; height:100%; cursor:grab;}
   #three-canvas:active{cursor:grabbing;}
   .viewport-hint{
@@ -116,9 +118,15 @@
     position:absolute; top:10px; right:14px; font-family:var(--mono); font-size:10px;
     color:var(--amber-dim); letter-spacing:.1em; pointer-events:none;
   }
+  .axis-hint{
+    position:absolute; bottom:10px; right:14px; font-family:var(--mono); font-size:10px;
+    letter-spacing:.05em; pointer-events:none; text-align:right; line-height:1.6;
+  }
+  .axis-hint .cam-lbl{color:var(--cyan);}
+  .axis-hint .acc-lbl{color:var(--amber);}
 
-  .sidebar{display:flex; flex-direction:column;}
-  .cam-box{position:relative; aspect-ratio:4/3; background:#000; overflow:hidden; border-bottom:1px solid var(--hairline);}
+  .sidebar{display:flex; flex-direction:column; height:100%; min-height:0; overflow-y:auto;}
+  .cam-box{position:relative; flex:0 0 34%; min-height:180px; background:#000; overflow:hidden; border-bottom:1px solid var(--hairline);}
   #video{width:100%; height:100%; object-fit:cover; opacity:.85; transform:scaleX(-1);}
   #flow-canvas{position:absolute; inset:0; width:100%; height:100%; transform:scaleX(-1);}
   .cam-overlay{
@@ -128,17 +136,20 @@
   .cam-overlay.hidden{display:none;}
   .cam-overlay p{font-size:12px; color:var(--text-dim); max-width:280px;}
 
-  .readouts{padding:16px; display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--hairline);}
+  .readouts{padding:16px; display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--hairline); flex:0 0 auto;}
   .readout{background:var(--panel); padding:12px 14px;}
-  .readout .rlabel{font-family:var(--mono); font-size:10px; color:var(--text-dim); letter-spacing:.1em; text-transform:uppercase;}
+  .readout .rlabel{font-family:var(--mono); font-size:10px; color:var(--text-dim); letter-spacing:.1em; text-transform:uppercase; display:flex; justify-content:space-between;}
+  .readout .rlabel .src{font-size:9px;}
+  .readout .rlabel .src.cam{color:var(--cyan);}
+  .readout .rlabel .src.acc{color:var(--amber);}
   .readout .rval{font-family:var(--mono); font-size:24px; font-weight:600; color:var(--amber); margin-top:4px;}
   .readout .rval small{font-size:12px; color:var(--text-dim); font-weight:400;}
   .readout.cyan .rval{color:var(--cyan);}
 
-  .strip{padding:0 16px 16px;}
+  .strip{padding:0 16px 16px; flex:0 0 auto;}
   #trail-canvas{width:100%; height:64px; display:block; background:var(--panel-2); border:1px solid var(--hairline);}
 
-  .controls{padding:16px; border-top:1px solid var(--hairline); display:flex; flex-direction:column; gap:12px;}
+  .controls{padding:16px; border-top:1px solid var(--hairline); display:flex; flex-direction:column; gap:12px; flex:1 1 auto;}
   .btnrow{display:flex; gap:8px; flex-wrap:wrap;}
   button{
     font-family:var(--mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase;
@@ -256,7 +267,7 @@
   <div class="hero-head">
     <div class="eyebrow">Odometria Visual-Inercial · Instrumento de Bancada</div>
     <h1>Emulando um <em>giroscópio</em><br>com câmera + acelerômetro</h1>
-    <p>Este console roda a fusão de sensores no seu navegador: fluxo óptico estima a velocidade angular (yaw), o acelerômetro fixa o "para baixo" (roll/pitch), e um filtro complementar funde os dois num giroscópio virtual — visualizado no gimbal 3D ao lado.</p>
+    <p>Este console roda a fusão de sensores no seu navegador: a câmera analisa a tela inteira com um campo de fluxo óptico e move o cubo <b style="color:var(--cyan)">para os lados</b> (yaw); o acelerômetro fixa o "para baixo" e move o cubo <b style="color:var(--amber)">para cima e para baixo</b> (pitch); e a própria câmera ajuda o cálculo do acelerômetro em roll e pitch com um filtro preditor-corretor.</p>
   </div>
 
   <div class="console" id="console">
@@ -269,6 +280,7 @@
         <canvas id="three-canvas"></canvas>
         <div class="viewport-tag">ATT·IND / CUBE-01</div>
         <div class="viewport-hint">arraste para orbitar a câmera de visualização</div>
+        <div class="axis-hint"><span class="cam-lbl">◀ CÂMERA → lados (yaw)</span><br><span class="acc-lbl">▲ ACELERÔMETRO → cima/baixo (pitch)</span></div>
       </div>
       <div class="status-line" id="status-line">Aguardando início — pressione <b>Iniciar Câmera</b> e <b>Ativar Sensores</b> abaixo.</div>
     </div>
@@ -284,19 +296,19 @@
 
       <div class="readouts">
         <div class="readout">
-          <div class="rlabel">Roll (φ)</div>
+          <div class="rlabel">Roll (φ)<span class="src acc">ACC+CAM</span></div>
           <div class="rval" id="val-roll">0.0<small>°</small></div>
         </div>
         <div class="readout">
-          <div class="rlabel">Pitch (θ)</div>
+          <div class="rlabel">Pitch (θ)<span class="src acc">ACC+CAM</span></div>
           <div class="rval" id="val-pitch">0.0<small>°</small></div>
         </div>
         <div class="readout cyan">
-          <div class="rlabel">Yaw (ψ)</div>
+          <div class="rlabel">Yaw (ψ)<span class="src cam">CAM</span></div>
           <div class="rval" id="val-yaw">0.0<small>°</small></div>
         </div>
         <div class="readout cyan">
-          <div class="rlabel">Giro Z</div>
+          <div class="rlabel">Giro Z<span class="src cam">CAM</span></div>
           <div class="rval" id="val-gyro">0.0<small>°/s</small></div>
         </div>
       </div>
@@ -380,26 +392,26 @@
     </div>
     <div class="grid-2">
       <div class="card">
-        <h3>A · Velocidade angular visual</h3>
-        <p>O deslocamento médio dos blocos rastreados entre dois quadros, dividido pelo intervalo de tempo, aproxima a velocidade angular no eixo Z:</p>
-        <div class="eq"><span class="k">ω</span> = Δθ / Δt &nbsp;·&nbsp; <span class="v">K</span></div>
-        <p>Onde <span class="v">K</span> é o fator de calibração ajustável no painel — compensa o campo de visão e a distância focal da sua câmera.</p>
+        <h3>A · Fluxo óptico na tela toda</h3>
+        <p>A grade de blocos cobre o quadro inteiro (não um canto ou um único ponto). Cada bloco (x,y) casa com a posição de melhor correspondência no quadro seguinte, gerando um campo vetorial completo (dx<sub>i</sub>, dy<sub>i</sub>) por bloco — visível como as setas na câmera ao lado.</p>
       </div>
       <div class="card">
-        <h3>B · Roll e pitch por gravidade</h3>
-        <p>Com o vetor de aceleração (A<sub>x</sub>, A<sub>y</sub>, A<sub>z</sub>) da IMU, os ângulos de inclinação vêm direto da trigonometria do vetor gravidade:</p>
-        <div class="eq">pitch = atan2(A<span class="k">y</span>, √(A<span class="k">x</span>² + A<span class="k">z</span>²))</div>
-        <div class="eq">roll&nbsp; = atan2(−A<span class="k">x</span>, A<span class="k">z</span>)</div>
+        <h3>B · Decomposição do campo de fluxo</h3>
+        <p>O campo é separado em translação (pan) e rotação (torção em torno do eixo óptico) por mínimos quadrados. Para uma rotação pura φ, cada ponto se move como (dx,dy) = (−y·φ, x·φ):</p>
+        <div class="eq">pan<span class="k">X</span>,pan<span class="k">Y</span> = mediana(dx<sub>i</sub>), mediana(dy<sub>i</sub>)</div>
+        <div class="eq"><span class="k">φ</span> = Σ(x·dy<sub>r</sub> − y·dx<sub>r</sub>) / Σ(x² + y²)</div>
+        <p>pan<span class="v">X</span> alimenta o <b>yaw</b> (lados), pan<span class="v">Y</span> assiste o <b>pitch</b>, e <span class="v">φ</span> assiste o <b>roll</b> — as três saídas vêm de uma única passada pelo quadro inteiro.</p>
       </div>
       <div class="card">
-        <h3>C · Filtro complementar</h3>
-        <p>Cada ângulo final pondera a integração rápida da câmera contra a leitura absoluta e estável do acelerômetro:</p>
-        <div class="eq">ângulo = <span class="v">α</span>·(ângulo + ω·Δt) + (1−<span class="v">α</span>)·ângulo<sub>acc</sub></div>
-        <p>No console acima, α é o slider "Confiança na câmera" — perto de 1 confia quase tudo na câmera; valores menores puxam mais para o acelerômetro.</p>
+        <h3>C · Câmera ajudando o acelerômetro</h3>
+        <p>Roll e pitch usam um preditor-corretor: a câmera prevê o próximo ângulo a partir da taxa de fluxo (como faria um giroscópio), e o acelerômetro corrige o desvio acumulado com a leitura absoluta da gravidade:</p>
+        <div class="eq">ângulo<sub>previsto</sub> = ângulo + ω<sub>câmera</sub>·Δt</div>
+        <div class="eq">ângulo = <span class="v">α</span>·ângulo<sub>previsto</sub> + (1−<span class="v">α</span>)·ângulo<sub>acelerômetro</sub></div>
+        <p>α é o slider "Confiança na câmera": perto de 1, a câmera domina a resposta rápida; valores menores deixam o acelerômetro corrigir com mais força.</p>
       </div>
       <div class="card">
         <h3>D · O limite físico do yaw</h3>
-        <p>Girar em torno do eixo vertical não altera a direção da gravidade — por isso o acelerômetro nunca contribui para o yaw. Nesta demo, o yaw vem <em>só</em> da câmera e é congelado quando a imagem perde textura rastreável.</p>
+        <p>Girar em torno do eixo vertical não altera a direção da gravidade — por isso o acelerômetro nunca contribui para o yaw. O yaw vem <em>só</em> da câmera (pan<span class="v">X</span>) e é congelado quando a imagem perde textura rastreável.</p>
       </div>
     </div>
   </section>
@@ -469,7 +481,7 @@ cap.release()</pre>
         <tr><td>Motion blur</td><td class="prob">Movimentos rápidos borram a imagem e quebram o rastreamento.</td><td class="fix">Filtro complementar reduz automaticamente o peso da câmera quando a variância do fluxo dispara.</td></tr>
         <tr><td>Falta de textura</td><td class="prob">Superfícies lisas (paredes brancas) não dão pontos para rastrear.</td><td class="fix">Detector de variância de textura congela o yaw e acende o LED de aviso no painel.</td></tr>
         <tr><td>Distorção de lente</td><td class="prob">Lentes grande-angulares deformam o deslocamento nas bordas.</td><td class="fix">Fora do escopo desta demo — recomenda-se calibração com <code>cv2.calibrateCamera</code> na versão desktop.</td></tr>
-        <tr><td>Roll (rotação no eixo óptico)</td><td class="prob">Fluxo óptico translacional simples não separa rotação-no-plano de deslocamento lateral.</td><td class="fix">Roll é estimado majoritariamente pelo acelerômetro nesta demo; fluxo afim/rotacional fica como próximo passo.</td></tr>
+        <tr><td>Roll (rotação no eixo óptico)</td><td class="prob">Fluxo puramente translacional não separa rotação-no-plano de deslocamento lateral.</td><td class="fix">O campo de fluxo é decomposto por mínimos quadrados (translação + rotação); a torção estimada assiste o acelerômetro em vez de ser ignorada.</td></tr>
       </tbody>
     </table>
   </section>
@@ -661,7 +673,7 @@ cap.release()</pre>
   const fctx = flowCanvas.getContext('2d');
   const camOverlay = document.getElementById('cam-overlay');
 
-  const SAMPLE_W = 48, SAMPLE_H = 36;   // downsample grid
+  const SAMPLE_W = 64, SAMPLE_H = 48;   // downsample grid — covers the WHOLE frame, not a corner
   const sampleCanvas = document.createElement('canvas');
   sampleCanvas.width = SAMPLE_W; sampleCanvas.height = SAMPLE_H;
   const sctx = sampleCanvas.getContext('2d', {willReadFrequently:true});
@@ -676,18 +688,22 @@ cap.release()</pre>
     return g;
   }
 
-  function blockMatchFlow(prev, cur){
-    // grid of blocks, search small window, aggregate median displacement
-    const BS = 6, SEARCH = 3;
-    let dxs=[], dys=[];
-    for(let by=BS; by<SAMPLE_H-BS-SEARCH; by+=BS){
-      for(let bx=BS; bx<SAMPLE_W-BS-SEARCH; bx+=BS){
+  // Block-matching optical flow computed over the ENTIRE frame (grid of blocks
+  // spanning every region of the image, not a single sample point), followed by
+  // a least-squares decomposition of the flow field into:
+  //   - translation (pan left/right, pan up/down)  -> drives yaw / assists pitch
+  //   - rotation about the viewing axis (twist)     -> assists roll
+  const BS = 4, SEARCH = 3;
+  function blockMatchFlowField(prev, cur){
+    const blocks = []; // {x, y, dx, dy}  x,y = block center in sample-space
+    for(let by=SEARCH; by<SAMPLE_H-BS-SEARCH; by+=BS){
+      for(let bx=SEARCH; bx<SAMPLE_W-BS-SEARCH; bx+=BS){
         let bestSad = Infinity, bestDx=0, bestDy=0;
         for(let sy=-SEARCH; sy<=SEARCH; sy++){
           for(let sx=-SEARCH; sx<=SEARCH; sx++){
             let sad=0;
-            for(let y=0;y<BS;y+=2){
-              for(let x=0;x<BS;x+=2){
+            for(let y=0;y<BS;y++){
+              for(let x=0;x<BS;x++){
                 const p = prev[(by+y)*SAMPLE_W+(bx+x)];
                 const c = cur[(by+y+sy)*SAMPLE_W+(bx+x+sx)];
                 sad += Math.abs(p-c);
@@ -696,12 +712,32 @@ cap.release()</pre>
             if(sad<bestSad){ bestSad=sad; bestDx=sx; bestDy=sy; }
           }
         }
-        dxs.push(bestDx); dys.push(bestDy);
+        blocks.push({x:bx+BS/2, y:by+BS/2, dx:bestDx, dy:bestDy});
       }
     }
-    dxs.sort((a,b)=>a-b); dys.sort((a,b)=>a-b);
-    const mid = Math.floor(dxs.length/2);
-    return { dx: dxs.length? dxs[mid]:0, dy: dys.length? dys[mid]:0, count: dxs.length };
+    return blocks;
+  }
+
+  function decomposeFlow(blocks){
+    if(blocks.length===0) return {panX:0, panY:0, rot:0};
+    const cx = SAMPLE_W/2, cy = SAMPLE_H/2;
+    // robust translation: median dx/dy across the whole grid
+    const dxs = blocks.map(b=>b.dx).sort((a,b)=>a-b);
+    const dys = blocks.map(b=>b.dy).sort((a,b)=>a-b);
+    const mid = Math.floor(blocks.length/2);
+    const panX = dxs[mid], panY = dys[mid];
+    // rotation about optical axis via least-squares on the *residual* flow
+    // (after removing translation): for a pure rotation phi, (dx,dy) = (-y*phi, x*phi)
+    // => phi = sum(x*dy_res - y*dx_res) / sum(x^2+y^2)
+    let num=0, den=0;
+    for(const b of blocks){
+      const x = b.x-cx, y = b.y-cy;
+      const dxr = b.dx-panX, dyr = b.dy-panY;
+      num += x*dyr - y*dxr;
+      den += x*x + y*y;
+    }
+    const rot = den>0 ? num/den : 0; // radians of twist per frame, small-angle
+    return {panX, panY, rot};
   }
 
   function textureVariance(gray){
@@ -710,8 +746,8 @@ cap.release()</pre>
     return v/gray.length;
   }
 
-  let lastFrameTime = performance.now();
-  let camDx=0, camDy=0;
+  let camDx=0, camDy=0, camRot=0;
+  let lastFlowBlocks = [];
 
   function processFrame(){
     if(!camActive) return;
@@ -721,33 +757,43 @@ cap.release()</pre>
 
     const variance = textureVariance(gray);
     lowTexture = variance < 18;
-    els.texStatus.innerHTML = (lowTexture?'<span class="led bad"></span>Textura BAIXA — yaw congelado, usando acelerômetro' : '<span class="led ok"></span>Textura OK — fluxo óptico ativo');
+    els.texStatus.innerHTML = (lowTexture?'<span class="led bad"></span>Textura BAIXA — yaw congelado, acelerômetro assume sozinho' : '<span class="led ok"></span>Textura OK — analisando a tela toda ('+blocksCount()+' blocos)');
 
     if(prevGray && !lowTexture){
-      const flow = blockMatchFlow(prevGray, gray);
-      camDx = flow.dx; camDy = flow.dy;
-      drawFlowOverlay(flow);
+      const blocks = blockMatchFlowField(prevGray, gray);
+      const {panX, panY, rot} = decomposeFlow(blocks);
+      camDx = panX; camDy = panY; camRot = rot;
+      lastFlowBlocks = blocks;
+      drawFlowOverlay(blocks);
     } else {
-      camDx = 0; camDy = 0;
+      camDx = 0; camDy = 0; camRot = 0;
       fctx.clearRect(0,0,flowCanvas.width, flowCanvas.height);
     }
     prevGray = gray;
   }
+  function blocksCount(){
+    let n=0;
+    for(let by=SEARCH; by<SAMPLE_H-BS-SEARCH; by+=BS) for(let bx=SEARCH; bx<SAMPLE_W-BS-SEARCH; bx+=BS) n++;
+    return n;
+  }
 
-  function drawFlowOverlay(flow){
+  function drawFlowOverlay(blocks){
     const w = flowCanvas.clientWidth, h = flowCanvas.clientHeight;
     if(flowCanvas.width!==w) flowCanvas.width=w;
     if(flowCanvas.height!==h) flowCanvas.height=h;
     fctx.clearRect(0,0,w,h);
-    fctx.strokeStyle = 'rgba(255,178,56,0.85)';
-    fctx.lineWidth = 2;
-    const cx=w/2, cy=h/2, scale=6;
-    fctx.beginPath();
-    fctx.moveTo(cx,cy);
-    fctx.lineTo(cx+flow.dx*scale, cy+flow.dy*scale);
-    fctx.stroke();
-    fctx.fillStyle = 'rgba(255,178,56,0.85)';
-    fctx.beginPath(); fctx.arc(cx+flow.dx*scale, cy+flow.dy*scale, 4,0,Math.PI*2); fctx.fill();
+    const sx = w/SAMPLE_W, sy = h/SAMPLE_H, scale=3.2;
+    fctx.lineWidth = 1.3;
+    for(const b of blocks){
+      const mag = Math.hypot(b.dx,b.dy);
+      const px = b.x*sx, py = b.y*sy;
+      const ex = px + b.dx*scale, ey = py + b.dy*scale;
+      const alpha = Math.min(0.15 + mag*0.18, 0.95);
+      fctx.strokeStyle = `rgba(255,178,56,${alpha})`;
+      fctx.beginPath(); fctx.moveTo(px,py); fctx.lineTo(ex,ey); fctx.stroke();
+      fctx.fillStyle = `rgba(79,216,232,${alpha})`;
+      fctx.beginPath(); fctx.arc(px,py,1.4,0,Math.PI*2); fctx.fill();
+    }
   }
 
   document.getElementById('btn-camera').addEventListener('click', async ()=>{
@@ -820,22 +866,37 @@ cap.release()</pre>
     if(camActive){ processFrame(); }
 
     if(!manualMode){
-      // yaw: camera-only, integrated, frozen if low texture
-      const omegaYaw = lowTexture ? 0 : (camDx/Math.max(dt,0.001)) * K_CALIB;
+      const dtSafe = Math.max(dt, 0.001);
+
+      // --- YAW: camera moves the cube sideways --------------------------------
+      // pure horizontal pan of the flow field, integrated. This is the only
+      // source for yaw (gravity can't see rotation about the vertical axis).
+      const omegaYaw = lowTexture ? 0 : (camDx/dtSafe) * K_CALIB;
       gyroZ = omegaYaw;
       yaw += omegaYaw * dt;
       yaw = ((yaw+180)%360+360)%360 - 180;
 
-      // pitch: complementary filter (camera delta vs accel absolute)
-      const omegaPitchCam = lowTexture ? 0 : (camDy/Math.max(dt,0.001)) * K_CALIB * 0.6;
-      const pitchAccTarget = accReady ? accPitchDeg : pitch;
-      pitch = ALPHA*(pitch + omegaPitchCam*dt) + (1-ALPHA)*pitchAccTarget;
+      // --- PITCH: accelerometer moves the cube up/down, camera assists -------
+      // Predictor-corrector, the same structure a real gyro+accelerometer pair
+      // uses: the camera's vertical pan rate acts as a fast "predictor" between
+      // accelerometer samples, and the accelerometer's absolute gravity-based
+      // reading corrects any drift the predictor accumulates.
+      const omegaPitchCam = lowTexture ? 0 : (camDy/dtSafe) * K_CALIB * 0.6;
+      const pitchPredicted = pitch + omegaPitchCam*dt;
+      const pitchAccTarget = accReady ? accPitchDeg : pitchPredicted;
+      pitch = ALPHA*pitchPredicted + (1-ALPHA)*pitchAccTarget;
       pitch = Math.max(-89, Math.min(89, pitch));
 
-      // roll: mostly accelerometer (in-plane rotation not observable from translational flow)
-      const rollAccTarget = accReady ? accRollDeg : roll;
-      const ROLL_ALPHA = 0.25;
-      roll = ROLL_ALPHA*roll + (1-ROLL_ALPHA)*rollAccTarget;
+      // --- ROLL: accelerometer is the reference, camera assists the calc -----
+      // camRot comes from a least-squares fit of the *rotational* component of
+      // the whole-frame flow field (dx,dy)=(-y·φ,x·φ) — this is the camera
+      // literally helping the accelerometer's roll estimate, the way a gyro
+      // normally would, instead of leaving roll to the accelerometer alone.
+      const omegaRollCam = lowTexture ? 0 : THREE.MathUtils.radToDeg(camRot) / dtSafe * K_CALIB * 0.6;
+      const rollPredicted = roll + omegaRollCam*dt;
+      const rollAccTarget = accReady ? accRollDeg : rollPredicted;
+      const ROLL_ALPHA = 0.6; // trust the camera-assisted predictor more than before
+      roll = ROLL_ALPHA*rollPredicted + (1-ROLL_ALPHA)*rollAccTarget;
     } else {
       roll = manual.roll; pitch = manual.pitch; yaw = manual.yaw; gyroZ = 0;
     }
