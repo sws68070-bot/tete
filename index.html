@@ -3,11 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Espaço 3D — Sensores</title>
+<title>Espaço 3D — Sensores v2</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
   canvas { display: block; touch-action: none; }
+
+  #vinheta {
+    position: fixed; inset: 0; z-index: 12; pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%);
+  }
 
   #hud {
     position: fixed; top: 12px; left: 12px; z-index: 20;
@@ -15,23 +20,24 @@
     border: 1px solid rgba(120,160,255,0.25);
     border-radius: 10px; padding: 12px 14px;
     color: #cfe0ff; font-size: 12px; line-height: 1.55;
-    min-width: 190px; pointer-events: none;
-    box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+    min-width: 185px; box-shadow: 0 4px 18px rgba(0,0,0,0.4);
   }
-  #hud h1 { font-size: 13px; color: #8fb4ff; margin-bottom: 6px; letter-spacing: 0.5px; }
+  #hud h1 { font-size: 13px; color: #8fb4ff; margin-bottom: 6px; letter-spacing: 0.5px; display:flex; align-items:center; gap:8px; }
   #hud .row { display: flex; justify-content: space-between; gap: 10px; }
   #hud .row span:last-child { color: #fff; font-variant-numeric: tabular-nums; }
   #hud .ok { color: #6cff9a; }
   #hud .bad { color: #ff7a7a; }
+  #bussola { display:block; margin: 6px auto 4px; }
 
   #painelInicio {
     position: fixed; inset: 0; z-index: 50;
     display: flex; align-items: center; justify-content: center;
-    background: radial-gradient(circle at 50% 40%, #12182b 0%, #05060a 75%);
-    flex-direction: column; gap: 18px; padding: 24px; text-align: center;
+    background: radial-gradient(circle at 50% 35%, #12182b 0%, #05060a 75%);
+    flex-direction: column; gap: 16px; padding: 24px; text-align: center;
   }
   #painelInicio h2 { color: #cfe0ff; font-size: 22px; font-weight: 600; }
-  #painelInicio p { color: #8a94b3; font-size: 14px; max-width: 360px; line-height: 1.5; }
+  #painelInicio p { color: #8a94b3; font-size: 13.5px; max-width: 380px; line-height: 1.55; }
+  #painelInicio ul { text-align: left; color: #8a94b3; font-size: 12.5px; max-width: 340px; margin-top: -6px; line-height: 1.7; }
   #btnAtivar {
     background: linear-gradient(135deg, #4f7bff, #7a4fff);
     color: #fff; border: none; padding: 14px 30px; border-radius: 30px;
@@ -59,151 +65,405 @@
     box-shadow: 0 0 6px rgba(255,255,255,0.5);
   }
 
-  #btnReset {
+  #barraSuperiorDireita {
     position: fixed; top: 12px; right: 12px; z-index: 20;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  }
+  #minimapaWrap {
     background: rgba(10,12,20,0.72); border: 1px solid rgba(120,160,255,0.25);
-    color: #cfe0ff; padding: 9px 14px; border-radius: 8px; font-size: 12px;
-    cursor: pointer;
+    border-radius: 10px; padding: 6px; box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+  }
+  .botoesTop { display: flex; gap: 6px; }
+  .botaoIcone {
+    background: rgba(10,12,20,0.72); border: 1px solid rgba(120,160,255,0.25);
+    color: #cfe0ff; padding: 8px 11px; border-radius: 8px; font-size: 13px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .botaoIcone:active { transform: scale(0.95); }
+
+  #placar {
+    position: fixed; bottom: 14px; right: 14px; z-index: 20;
+    background: rgba(10,12,20,0.72); border: 1px solid rgba(255,210,94,0.3);
+    color: #ffd25e; padding: 9px 16px; border-radius: 30px; font-size: 13px; font-weight: 600;
+  }
+
+  #joystickZona {
+    position: fixed; bottom: 26px; left: 26px; z-index: 20;
+    width: 120px; height: 120px; border-radius: 50%;
+    background: rgba(20,24,40,0.45); border: 1px solid rgba(120,160,255,0.3);
+    display: none;
+  }
+  #joystickBase {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 52px; height: 52px; border-radius: 50%;
+    background: rgba(79,123,255,0.55); border: 1px solid rgba(255,255,255,0.4);
+  }
+
+  #toast {
+    position: fixed; top: 44%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 30; color: #ffd25e; font-size: 18px; font-weight: 700;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.7); opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
   }
 </style>
 </head>
 <body>
 
 <div id="painelInicio">
-  <h2>🧭 Espaço 3D com Sensores</h2>
+  <h2>🧭 Espaço 3D com Sensores v2</h2>
   <p>
-    Este ambiente usa o giroscópio do seu celular para saber para onde você está olhando,
-    e o acelerômetro para detectar seus passos e mover você dentro da cena 3D.
-    No computador, use mouse e teclado (WASD).
+    Giroscópio controla para onde você olha. O acelerômetro detecta seus passos reais.
+    Um joystick no canto complementa o movimento com precisão. Explore, colete os orbes
+    e encontre o cubo no centro do mapa.
   </p>
+  <ul>
+    <li>📡 Fusão de sensores com calibração de norte</li>
+    <li>🕹️ Joystick para movimento fino</li>
+    <li>💎 10 orbes coletáveis + pontuação</li>
+    <li>🗺️ Minimapa e trilha do caminho</li>
+    <li>🔊 Áudio procedural (passos / coleta / ambiente)</li>
+  </ul>
   <button id="btnAtivar">Ativar Sensores e Entrar</button>
   <button id="btnDesktop">Entrar sem sensores (mouse/teclado)</button>
 </div>
 
 <div id="hud" style="display:none;">
-  <h1>STATUS DOS SENSORES</h1>
+  <h1>📡 SENSORES</h1>
+  <canvas id="bussola" width="70" height="70"></canvas>
   <div class="row"><span>Giroscópio</span><span id="stGiro">—</span></div>
   <div class="row"><span>Acelerômetro</span><span id="stAcel">—</span></div>
-  <div class="row"><span>Alpha (Z)</span><span id="valAlpha">0°</span></div>
-  <div class="row"><span>Beta (X)</span><span id="valBeta">0°</span></div>
-  <div class="row"><span>Gamma (Y)</span><span id="valGamma">0°</span></div>
   <div class="row"><span>Passos</span><span id="valPassos">0</span></div>
-  <div class="row"><span>Posição X</span><span id="valPosX">0.00</span></div>
-  <div class="row"><span>Posição Z</span><span id="valPosZ">0.00</span></div>
+  <div class="row"><span>Velocidade</span><span id="valVel">0.0 m/s</span></div>
+  <div class="row"><span>Pos X / Z</span><span id="valPos">0.0 / 0.0</span></div>
 </div>
 
+<div id="barraSuperiorDireita">
+  <div class="botoesTop">
+    <button class="botaoIcone" id="btnCalibrar" title="Recalibrar norte">🧭 Norte</button>
+    <button class="botaoIcone" id="btnSom">🔊</button>
+    <button class="botaoIcone" id="btnReset">↺</button>
+  </div>
+  <div id="minimapaWrap">
+    <canvas id="minimapa" width="140" height="140"></canvas>
+  </div>
+</div>
+
+<div id="placar">💎 Orbes: <span id="valPontos">0</span> / 10</div>
+
+<div id="joystickZona">
+  <div id="joystickBase"></div>
+</div>
+
+<div id="toast"></div>
 <div id="reticulo"></div>
-<button id="btnReset" style="display:none;">↺ Resetar posição</button>
+<div id="vinheta"></div>
 <div id="instrucoesDesktop">Clique na tela para travar o mouse · WASD para andar · ESC para soltar</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script>
 (function() {
   'use strict';
 
-  // ---------- CONFIG ----------
-  const PASSO_DISTANCIA = 0.65;      // metros avançados por passo detectado
-  const LIMIAR_PASSO = 1.35;         // limiar de aceleração (m/s²) acima da média p/ contar passo
-  const INTERVALO_MIN_PASSO = 320;   // ms mínimos entre passos (evita contagem duplicada)
-  const VEL_TECLADO = 4.0;           // m/s no modo desktop
-
-  // ---------- ESTADO ----------
-  let estado = {
-    usaSensores: false,
-    passos: 0,
-    posX: 0, posZ: 0,
-    yaw: 0, // olhar horizontal acumulado (rad) — usado no modo desktop
-    pitch: 0,
-    alpha: 0, beta: 0, gamma: 0,
-    ultimoPasso: 0,
-    mediaAceleracao: 9.81,
-    ponteiroTravado: false,
-    teclas: {}
+  // ============================================================
+  // CONFIGURAÇÃO
+  // ============================================================
+  const CFG = {
+    passoDistancia: 0.55,
+    limiarPassoBase: 1.25,
+    intervaloMinPasso: 300,
+    velTeclado: 4.2,
+    velJoystick: 3.4,
+    raioJogador: 0.4,
+    raioColeta: 1.1,
+    tamanhoMundo: 26,
+    totalOrbes: 10
   };
 
-  // ---------- THREE.JS ----------
-  let cena, camera, renderer, cubo;
+  // ============================================================
+  // ESTADO GLOBAL
+  // ============================================================
+  const estado = {
+    usaSensores: false,
+    passos: 0,
+    pontos: 0,
+    posX: 0, posZ: 0,
+    velocidadeAtual: 0,
+    yaw: 0, pitch: 0,
+    alpha: 0, beta: 0, gamma: 0,
+    offsetAlpha: 0,
+    ultimoPasso: 0,
+    mediaAceleracao: 9.81,
+    varAceleracao: 0.2,
+    ponteiroTravado: false,
+    teclas: {},
+    joystick: { ativo: false, x: 0, y: 0, id: null },
+    somLigado: true,
+    trilhaPontos: []
+  };
 
+  let cena, camera, renderer, composer, usaBloom = false;
+  let cubo, orbes = [], paredesAABB = [], linhaTrilha, trilhaGeom, trilhaPosicoes;
+  let audioCtx = null, gainAmbiente = null;
+
+  // ============================================================
+  // ÁUDIO PROCEDURAL (sem arquivos externos)
+  // ============================================================
+  function iniciarAudio() {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gainAmbiente = audioCtx.createGain();
+      gainAmbiente.gain.value = estado.somLigado ? 0.05 : 0;
+      gainAmbiente.connect(audioCtx.destination);
+
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 60;
+      const lfo = audioCtx.createOscillator();
+      lfo.frequency.value = 0.07;
+      const lfoGain = audioCtx.createGain();
+      lfoGain.gain.value = 12;
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      osc.connect(gainAmbiente);
+      osc.start(); lfo.start();
+    } catch (e) { console.warn('Áudio indisponível:', e); }
+  }
+
+  function tocarBeep(freq, duracao, tipo, volume) {
+    if (!audioCtx || !estado.somLigado) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = tipo || 'square';
+    osc.frequency.value = freq;
+    g.gain.value = volume || 0.06;
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duracao);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duracao);
+  }
+
+  function tocarPasso() { tocarBeep(140 + Math.random() * 30, 0.07, 'square', 0.04); }
+  function tocarColeta() {
+    tocarBeep(880, 0.12, 'sine', 0.08);
+    setTimeout(() => tocarBeep(1320, 0.15, 'sine', 0.07), 90);
+  }
+
+  // ============================================================
+  // CENA THREE.JS
+  // ============================================================
   function iniciarCena() {
     cena = new THREE.Scene();
-    cena.background = new THREE.Color(0x0a0e1a);
-    cena.fog = new THREE.Fog(0x0a0e1a, 8, 40);
+    cena.fog = new THREE.FogExp2(0x0a0e1a, 0.028);
 
-    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 1.6, 5); // altura de "olho humano"
+    camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 6);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
+    renderer.outputEncoding = THREE.sRGBEncoding;
     document.body.appendChild(renderer.domElement);
 
-    // Luzes
-    const luzAmbiente = new THREE.AmbientLight(0x404060, 1.2);
-    cena.add(luzAmbiente);
+    criarCeu();
+    criarEstrelas();
+    criarLuzes();
+    criarChao();
+    criarParedes();
+    criarCubo();
+    criarOrbes();
+    criarTrilha();
+    configurarBloom();
 
-    const luzDirecional = new THREE.DirectionalLight(0xffffff, 1.0);
-    luzDirecional.position.set(5, 10, 7);
-    luzDirecional.castShadow = true;
-    luzDirecional.shadow.mapSize.set(1024, 1024);
-    cena.add(luzDirecional);
+    window.addEventListener('resize', aoRedimensionar);
+  }
 
-    // Chão com grid
+  function criarCeu() {
+    const geo = new THREE.SphereGeometry(220, 32, 16);
+    const mat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: {
+        corTopo: { value: new THREE.Color(0x0a0e2a) },
+        corHorizonte: { value: new THREE.Color(0x2a3a6a) }
+      },
+      vertexShader: `
+        varying vec3 vPos;
+        void main() {
+          vPos = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vPos;
+        uniform vec3 corTopo;
+        uniform vec3 corHorizonte;
+        void main() {
+          float alt = normalize(vPos).y * 0.5 + 0.5;
+          gl_FragColor = vec4(mix(corHorizonte, corTopo, pow(alt, 0.6)), 1.0);
+        }
+      `
+    });
+    cena.add(new THREE.Mesh(geo, mat));
+  }
+
+  function criarEstrelas() {
+    const N = 900;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const r = 100 + Math.random() * 90;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(Math.random() * 0.9);
+      pos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+      pos[i*3+1] = Math.abs(r * Math.cos(phi)) + 8;
+      pos[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({ color: 0xaac4ff, size: 0.8, sizeAttenuation: true, transparent: true, opacity: 0.85 });
+    cena.add(new THREE.Points(geo, mat));
+  }
+
+  function criarLuzes() {
+    cena.add(new THREE.AmbientLight(0x35406a, 1.1));
+    const sol = new THREE.DirectionalLight(0xbfd0ff, 1.1);
+    sol.position.set(6, 12, 8);
+    sol.castShadow = true;
+    sol.shadow.mapSize.set(1536, 1536);
+    sol.shadow.camera.left = -20; sol.shadow.camera.right = 20;
+    sol.shadow.camera.top = 20; sol.shadow.camera.bottom = -20;
+    cena.add(sol);
+  }
+
+  function criarChao() {
     const chao = new THREE.Mesh(
-      new THREE.PlaneGeometry(60, 60),
-      new THREE.MeshStandardMaterial({ color: 0x141824, roughness: 0.9 })
+      new THREE.PlaneGeometry(CFG.tamanhoMundo * 2.4, CFG.tamanhoMundo * 2.4),
+      new THREE.MeshStandardMaterial({ color: 0x11141f, roughness: 0.95 })
     );
     chao.rotation.x = -Math.PI / 2;
     chao.receiveShadow = true;
     cena.add(chao);
-
-    const grid = new THREE.GridHelper(60, 60, 0x3a5fff, 0x1a2038);
+    const grid = new THREE.GridHelper(CFG.tamanhoMundo * 2.4, 48, 0x3a5fff, 0x171c30);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.55;
     cena.add(grid);
+  }
 
-    // Cubo central
+  function criarParedes() {
+    const specs = [
+      { x: -6, z: -3, w: 0.6, d: 8, h: 2.2 },
+      { x: 6, z: 3, w: 0.6, d: 8, h: 2.2 },
+      { x: 0, z: -9, w: 10, d: 0.6, h: 2.2 },
+      { x: -9, z: 6, w: 8, d: 0.6, h: 2.2 },
+      { x: 9, z: -6, w: 8, d: 0.6, h: 2.2 }
+    ];
+    const mat = new THREE.MeshStandardMaterial({ color: 0x1c2340, roughness: 0.6, metalness: 0.15, emissive: 0x0d1030, emissiveIntensity: 0.4 });
+    specs.forEach(s => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(s.w, s.h, s.d), mat);
+      mesh.position.set(s.x, s.h / 2, s.z);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      cena.add(mesh);
+      paredesAABB.push({
+        minX: s.x - s.w/2 - CFG.raioJogador, maxX: s.x + s.w/2 + CFG.raioJogador,
+        minZ: s.z - s.d/2 - CFG.raioJogador, maxZ: s.z + s.d/2 + CFG.raioJogador
+      });
+    });
+  }
+
+  function criarCubo() {
     cubo = new THREE.Mesh(
       new THREE.BoxGeometry(1.2, 1.2, 1.2),
-      new THREE.MeshStandardMaterial({ color: 0x4f7bff, roughness: 0.35, metalness: 0.25 })
+      new THREE.MeshStandardMaterial({ color: 0x4f7bff, roughness: 0.3, metalness: 0.3, emissive: 0x2244ff, emissiveIntensity: 0.5 })
     );
     cubo.position.set(0, 0.6, 0);
     cubo.castShadow = true;
     cena.add(cubo);
+  }
 
-    // Algumas referências espaciais extras para dar noção de movimento
-    const cores = [0xff5e7a, 0x6cff9a, 0xffd25e, 0xb26cff];
-    for (let i = 0; i < 4; i++) {
-      const marco = new THREE.Mesh(
-        new THREE.ConeGeometry(0.4, 1.2, 4),
-        new THREE.MeshStandardMaterial({ color: cores[i] })
+  function criarOrbes() {
+    const cores = [0xffd25e, 0xff5e7a, 0x6cff9a, 0xb26cff, 0x5ecfff];
+    for (let i = 0; i < CFG.totalOrbes; i++) {
+      const ang = (i / CFG.totalOrbes) * Math.PI * 2;
+      const raio = 5.5 + (i % 3) * 2.2;
+      const cor = cores[i % cores.length];
+      const mesh = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.28, 0),
+        new THREE.MeshStandardMaterial({ color: cor, emissive: cor, emissiveIntensity: 0.9, roughness: 0.25 })
       );
-      const ang = (i / 4) * Math.PI * 2;
-      marco.position.set(Math.cos(ang) * 8, 0.6, Math.sin(ang) * 8);
-      marco.castShadow = true;
-      cena.add(marco);
+      mesh.position.set(Math.cos(ang) * raio, 0.9, Math.sin(ang) * raio);
+      mesh.userData = { coletado: false, faseInicial: Math.random() * Math.PI * 2 };
+      mesh.castShadow = true;
+      cena.add(mesh);
+      orbes.push(mesh);
     }
+  }
 
-    window.addEventListener('resize', aoRedimensionar);
+  function criarTrilha() {
+    const maxPontos = 800;
+    trilhaPosicoes = new Float32Array(maxPontos * 3);
+    trilhaGeom = new THREE.BufferGeometry();
+    trilhaGeom.setAttribute('position', new THREE.BufferAttribute(trilhaPosicoes, 3));
+    trilhaGeom.setDrawRange(0, 0);
+    const mat = new THREE.LineBasicMaterial({ color: 0x6cff9a, transparent: true, opacity: 0.55 });
+    linhaTrilha = new THREE.Line(trilhaGeom, mat);
+    cena.add(linhaTrilha);
+  }
+
+  function registrarTrilha() {
+    const n = estado.trilhaPontos.length;
+    const maxPontos = trilhaPosicoes.length / 3;
+    if (n >= maxPontos) return;
+    trilhaPosicoes[n*3] = estado.posX;
+    trilhaPosicoes[n*3+1] = 0.05;
+    trilhaPosicoes[n*3+2] = estado.posZ;
+    estado.trilhaPontos.push(1);
+    trilhaGeom.setDrawRange(0, n + 1);
+    trilhaGeom.attributes.position.needsUpdate = true;
+  }
+
+  function configurarBloom() {
+    try {
+      if (!THREE.EffectComposer) throw new Error('sem composer');
+      composer = new THREE.EffectComposer(renderer);
+      composer.addPass(new THREE.RenderPass(cena, camera));
+      const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.5, 0.82);
+      composer.addPass(bloom);
+      usaBloom = true;
+    } catch (e) {
+      console.warn('Bloom indisponível, usando render padrão:', e);
+      usaBloom = false;
+    }
   }
 
   function aoRedimensionar() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if (composer) composer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  // ---------- ORIENTAÇÃO (giroscópio) ----------
-  // Baseado na técnica padrão do three.js DeviceOrientationControls,
-  // compensando a orientação da tela do dispositivo.
+  // ============================================================
+  // ORIENTAÇÃO (giroscópio) — técnica padrão de fusão do three.js
+  // ============================================================
   const ZEE = new THREE.Vector3(0, 0, 1);
   const EULER = new THREE.Euler();
   const Q0 = new THREE.Quaternion();
   const Q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  const quatAlvo = new THREE.Quaternion();
 
-  function orientacaoDispositivoParaQuaternion(alpha, beta, gamma, orient) {
-    EULER.set(THREE.Math.degToRad(beta), THREE.Math.degToRad(alpha), -THREE.Math.degToRad(gamma), 'YXZ');
-    camera.quaternion.setFromEuler(EULER);
-    camera.quaternion.multiply(Q1);
-    camera.quaternion.multiply(Q0.setFromAxisAngle(ZEE, -THREE.Math.degToRad(orient)));
+  function orientacaoParaQuaternion(alpha, beta, gamma, orient) {
+    const alphaAjustado = ((alpha - estado.offsetAlpha) + 360) % 360;
+    EULER.set(THREE.Math.degToRad(beta), THREE.Math.degToRad(alphaAjustado), -THREE.Math.degToRad(gamma), 'YXZ');
+    quatAlvo.setFromEuler(EULER);
+    quatAlvo.multiply(Q1);
+    quatAlvo.multiply(Q0.setFromAxisAngle(ZEE, -THREE.Math.degToRad(orient)));
+    // Suavização (slerp) para reduzir tremulação do sensor
+    camera.quaternion.slerp(quatAlvo, 0.35);
   }
 
   function aoOrientar(evento) {
@@ -219,7 +479,9 @@
     return (screen.orientation && screen.orientation.angle) || window.orientation || 0;
   }
 
-  // ---------- MOVIMENTO (acelerômetro / detecção de passos) ----------
+  // ============================================================
+  // MOVIMENTO — detecção adaptativa de passos via acelerômetro
+  // ============================================================
   function aoMover(evento) {
     const acel = evento.accelerationIncludingGravity;
     if (!acel || acel.x === null) return;
@@ -227,50 +489,133 @@
     document.getElementById('stAcel').textContent = 'ativo';
     document.getElementById('stAcel').className = 'ok';
 
-    const magnitude = Math.sqrt(acel.x * acel.x + acel.y * acel.y + acel.z * acel.z);
-    // Filtro passa-baixa simples para estimar a "linha de base" (gravidade)
-    estado.mediaAceleracao = estado.mediaAceleracao * 0.9 + magnitude * 0.1;
+    const magnitude = Math.sqrt(acel.x*acel.x + acel.y*acel.y + acel.z*acel.z);
+    const media = estado.mediaAceleracao;
+    estado.mediaAceleracao = media * 0.92 + magnitude * 0.08;
+    const desvio = magnitude - media;
+    estado.varAceleracao = estado.varAceleracao * 0.9 + Math.abs(desvio) * 0.1;
 
+    // Limiar adaptativo: caminhada mais "agitada" exige pico maior
+    const limiar = CFG.limiarPassoBase + estado.varAceleracao * 0.4;
     const agora = Date.now();
-    const desvio = magnitude - estado.mediaAceleracao;
 
-    if (desvio > LIMIAR_PASSO && (agora - estado.ultimoPasso) > INTERVALO_MIN_PASSO) {
+    if (desvio > limiar && (agora - estado.ultimoPasso) > CFG.intervaloMinPasso) {
       estado.ultimoPasso = agora;
       estado.passos++;
-      avancarNaDirecaoDoOlhar(PASSO_DISTANCIA);
+      avancarNaDirecao(CFG.passoDistancia, camera);
+      tocarPasso();
     }
   }
 
-  function avancarNaDirecaoDoOlhar(distancia) {
-    // Direção horizontal para onde a câmera olha (ignora inclinação vertical)
+  function avancarNaDirecao(distancia, refCamera) {
     const direcao = new THREE.Vector3();
-    camera.getWorldDirection(direcao);
-    direcao.y = 0;
-    direcao.normalize();
-
-    estado.posX += direcao.x * distancia;
-    estado.posZ += direcao.z * distancia;
+    refCamera.getWorldDirection(direcao);
+    direcao.y = 0; direcao.normalize();
+    tentarMover(direcao.x * distancia, direcao.z * distancia);
   }
 
-  // ---------- MODO DESKTOP (mouse + teclado) ----------
+  // Colisão simples: tenta mover nos dois eixos; se colidir, tenta eixo a eixo (slide)
+  function tentarMover(dx, dz) {
+    const nx = estado.posX + dx, nz = estado.posZ + dz;
+    if (!colideParede(nx, nz) && !colideCubo(nx, nz)) {
+      estado.posX = nx; estado.posZ = nz; return;
+    }
+    if (!colideParede(nx, estado.posZ) && !colideCubo(nx, estado.posZ)) { estado.posX = nx; return; }
+    if (!colideParede(estado.posX, nz) && !colideCubo(estado.posX, nz)) { estado.posZ = nz; return; }
+  }
+
+  function colideParede(x, z) {
+    for (let i = 0; i < paredesAABB.length; i++) {
+      const p = paredesAABB[i];
+      if (x > p.minX && x < p.maxX && z > p.minZ && z < p.maxZ) return true;
+    }
+    return false;
+  }
+
+  function colideCubo(x, z) {
+    const dx = x - cubo.position.x, dz = z - cubo.position.z;
+    return Math.sqrt(dx*dx + dz*dz) < (0.85 + CFG.raioJogador);
+  }
+
+  // ============================================================
+  // JOYSTICK TOUCH (movimento fino, complementa os passos)
+  // ============================================================
+  function ativarJoystick() {
+    const zona = document.getElementById('joystickZona');
+    const base = document.getElementById('joystickBase');
+    zona.style.display = 'block';
+    const raioMax = 42;
+
+    function posicionar(clientX, clientY) {
+      const rect = zona.getBoundingClientRect();
+      const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+      let dx = clientX - cx, dy = clientY - cy;
+      const dist = Math.min(Math.sqrt(dx*dx+dy*dy), raioMax);
+      const ang = Math.atan2(dy, dx);
+      dx = Math.cos(ang) * dist; dy = Math.sin(ang) * dist;
+      base.style.transform = `translate(${dx - 26 + 26}px, ${dy}px) translate(-50%,-50%)`;
+      base.style.left = '50%'; base.style.top = '50%';
+      base.style.marginLeft = dx + 'px'; base.style.marginTop = dy + 'px';
+      estado.joystick.x = dx / raioMax;
+      estado.joystick.y = dy / raioMax;
+    }
+
+    zona.addEventListener('touchstart', (e) => {
+      const t = e.changedTouches[0];
+      estado.joystick.ativo = true; estado.joystick.id = t.identifier;
+      posicionar(t.clientX, t.clientY);
+      e.preventDefault();
+    }, { passive: false });
+
+    zona.addEventListener('touchmove', (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === estado.joystick.id) posicionar(t.clientX, t.clientY);
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    function soltar(e) {
+      for (const t of e.changedTouches) {
+        if (t.identifier === estado.joystick.id) {
+          estado.joystick.ativo = false; estado.joystick.x = 0; estado.joystick.y = 0;
+          base.style.marginLeft = '0px'; base.style.marginTop = '0px';
+        }
+      }
+    }
+    zona.addEventListener('touchend', soltar);
+    zona.addEventListener('touchcancel', soltar);
+  }
+
+  function atualizarJoystick(delta) {
+    if (!estado.joystick.ativo) { estado.velocidadeAtual *= 0.9; return; }
+    const frente = new THREE.Vector3();
+    camera.getWorldDirection(frente);
+    frente.y = 0; frente.normalize();
+    const direita = new THREE.Vector3().crossVectors(frente, new THREE.Vector3(0,1,0)).negate();
+
+    const vx = frente.x * (-estado.joystick.y) + direita.x * (estado.joystick.x);
+    const vz = frente.z * (-estado.joystick.y) + direita.z * (estado.joystick.x);
+    const mag = Math.sqrt(vx*vx + vz*vz) || 1;
+    const passo = CFG.velJoystick * delta;
+    tentarMover((vx/mag) * passo * Math.min(mag,1), (vz/mag) * passo * Math.min(mag,1));
+    estado.velocidadeAtual = CFG.velJoystick * Math.min(mag, 1);
+  }
+
+  // ============================================================
+  // MODO DESKTOP (mouse + teclado)
+  // ============================================================
   function ativarControlesDesktop() {
     document.getElementById('instrucoesDesktop').style.display = 'block';
-
-    renderer.domElement.addEventListener('click', () => {
-      renderer.domElement.requestPointerLock();
-    });
-
+    renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
     document.addEventListener('pointerlockchange', () => {
       estado.ponteiroTravado = document.pointerLockElement === renderer.domElement;
     });
-
     document.addEventListener('mousemove', (e) => {
       if (!estado.ponteiroTravado) return;
       estado.yaw -= e.movementX * 0.0022;
       estado.pitch -= e.movementY * 0.0022;
-      estado.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, estado.pitch));
+      estado.pitch = Math.max(-Math.PI/2 + 0.05, Math.min(Math.PI/2 - 0.05, estado.pitch));
     });
-
     window.addEventListener('keydown', (e) => estado.teclas[e.code] = true);
     window.addEventListener('keyup', (e) => estado.teclas[e.code] = false);
   }
@@ -279,9 +624,9 @@
     const euler = new THREE.Euler(estado.pitch, estado.yaw, 0, 'YXZ');
     camera.quaternion.setFromEuler(euler);
 
-    const frente = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const frente = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
     frente.y = 0; frente.normalize();
-    const direita = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const direita = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);
     direita.y = 0; direita.normalize();
 
     let mover = new THREE.Vector3();
@@ -291,14 +636,127 @@
     if (estado.teclas['KeyA'] || estado.teclas['ArrowLeft']) mover.sub(direita);
 
     if (mover.lengthSq() > 0) {
-      mover.normalize().multiplyScalar(VEL_TECLADO * delta);
-      estado.posX += mover.x;
-      estado.posZ += mover.z;
+      mover.normalize().multiplyScalar(CFG.velTeclado * delta);
+      tentarMover(mover.x, mover.z);
+      estado.velocidadeAtual = CFG.velTeclado;
+    } else {
+      estado.velocidadeAtual *= 0.85;
     }
   }
 
-  // ---------- LOOP ----------
+  // ============================================================
+  // COLETA DE ORBES
+  // ============================================================
+  function verificarColeta() {
+    orbes.forEach(orbe => {
+      if (orbe.userData.coletado) return;
+      const dx = orbe.position.x - estado.posX, dz = orbe.position.z - estado.posZ;
+      if (Math.sqrt(dx*dx + dz*dz) < CFG.raioColeta) {
+        orbe.userData.coletado = true;
+        orbe.visible = false;
+        estado.pontos++;
+        document.getElementById('valPontos').textContent = estado.pontos;
+        tocarColeta();
+        mostrarToast('+1 orbe coletado! 💎');
+      }
+    });
+  }
+
+  let timeoutToast = null;
+  function mostrarToast(texto) {
+    const el = document.getElementById('toast');
+    el.textContent = texto;
+    el.style.opacity = '1';
+    el.style.transform = 'translate(-50%, -60%)';
+    clearTimeout(timeoutToast);
+    timeoutToast = setTimeout(() => {
+      el.style.opacity = '0';
+      el.style.transform = 'translate(-50%, -50%)';
+    }, 900);
+  }
+
+  // ============================================================
+  // MINIMAPA E BÚSSOLA (canvas 2D)
+  // ============================================================
+  const ctxMinimapa = document.getElementById('minimapa').getContext('2d');
+  const ctxBussola = document.getElementById('bussola').getContext('2d');
+
+  function desenharMinimapa() {
+    const w = 140, h = 140, escala = 2.6, cx = w/2, cz = h/2;
+    ctxMinimapa.clearRect(0, 0, w, h);
+    ctxMinimapa.fillStyle = 'rgba(15,18,32,0.9)';
+    ctxMinimapa.fillRect(0, 0, w, h);
+
+    // paredes
+    ctxMinimapa.fillStyle = '#2a3260';
+    paredesAABB.forEach(p => {
+      const x = cx + p.minX * escala, z = cz + p.minZ * escala;
+      ctxMinimapa.fillRect(x, z, (p.maxX-p.minX)*escala, (p.maxZ-p.minZ)*escala);
+    });
+
+    // cubo
+    ctxMinimapa.fillStyle = '#4f7bff';
+    ctxMinimapa.fillRect(cx - 4, cz - 4, 8, 8);
+
+    // orbes
+    orbes.forEach(o => {
+      if (o.userData.coletado) return;
+      ctxMinimapa.fillStyle = '#ffd25e';
+      ctxMinimapa.beginPath();
+      ctxMinimapa.arc(cx + o.position.x*escala, cz + o.position.z*escala, 2.6, 0, Math.PI*2);
+      ctxMinimapa.fill();
+    });
+
+    // jogador + direção
+    const px = cx + estado.posX * escala, pz = cz + estado.posZ * escala;
+    const dirCam = new THREE.Vector3();
+    camera.getWorldDirection(dirCam);
+    const ang = Math.atan2(dirCam.x, dirCam.z);
+    ctxMinimapa.save();
+    ctxMinimapa.translate(px, pz);
+    ctxMinimapa.rotate(ang);
+    ctxMinimapa.fillStyle = '#6cff9a';
+    ctxMinimapa.beginPath();
+    ctxMinimapa.moveTo(0, -6); ctxMinimapa.lineTo(4, 5); ctxMinimapa.lineTo(-4, 5);
+    ctxMinimapa.closePath(); ctxMinimapa.fill();
+    ctxMinimapa.restore();
+  }
+
+  function desenharBussola() {
+    const w = 70, h = 70, cx = w/2, cy = h/2, r = 28;
+    ctxBussola.clearRect(0, 0, w, h);
+    ctxBussola.strokeStyle = 'rgba(143,180,255,0.4)';
+    ctxBussola.beginPath(); ctxBussola.arc(cx, cy, r, 0, Math.PI*2); ctxBussola.stroke();
+
+    const dirCam = new THREE.Vector3();
+    camera.getWorldDirection(dirCam);
+    const ang = Math.atan2(dirCam.x, dirCam.z);
+
+    ctxBussola.save();
+    ctxBussola.translate(cx, cy);
+    ctxBussola.rotate(-ang);
+    ctxBussola.fillStyle = '#ff7a7a';
+    ctxBussola.font = 'bold 11px sans-serif';
+    ctxBussola.textAlign = 'center';
+    ctxBussola.fillText('N', 0, -r + 12);
+    ctxBussola.fillStyle = '#8fb4ff';
+    ctxBussola.fillText('S', 0, r - 4);
+    ctxBussola.fillText('L', r - 10, 4);
+    ctxBussola.fillText('O', -r + 10, 4);
+    ctxBussola.restore();
+
+    ctxBussola.fillStyle = '#cfe0ff';
+    ctxBussola.beginPath();
+    ctxBussola.moveTo(cx, cy - 8); ctxBussola.lineTo(cx + 5, cy + 6); ctxBussola.lineTo(cx - 5, cy + 6);
+    ctxBussola.closePath(); ctxBussola.fill();
+  }
+
+  // ============================================================
+  // LOOP PRINCIPAL
+  // ============================================================
   let ultimoTempo = performance.now();
+  let ultimoRegistroTrilha = 0;
+
   function animar() {
     requestAnimationFrame(animar);
     const agora = performance.now();
@@ -306,41 +764,77 @@
     ultimoTempo = agora;
 
     if (estado.usaSensores) {
-      orientacaoDispositivoParaQuaternion(estado.alpha, estado.beta, estado.gamma, orientacaoTela());
+      orientacaoParaQuaternion(estado.alpha, estado.beta, estado.gamma, orientacaoTela());
+      atualizarJoystick(delta);
     } else {
       atualizarDesktop(delta);
     }
 
     camera.position.set(estado.posX, 1.6, estado.posZ);
 
-    cubo.rotation.y += 0.3 * delta;
-    cubo.rotation.x += 0.12 * delta;
+    cubo.rotation.y += 0.35 * delta;
+    cubo.rotation.x += 0.14 * delta;
+    const distCubo = Math.hypot(estado.posX - cubo.position.x, estado.posZ - cubo.position.z);
+    cubo.material.emissiveIntensity = 0.4 + Math.max(0, 1 - distCubo / 6) * 0.8;
 
+    const t = agora * 0.002;
+    orbes.forEach(o => {
+      if (o.userData.coletado) return;
+      o.position.y = 0.9 + Math.sin(t + o.userData.faseInicial) * 0.12;
+      o.rotation.y += delta * 1.4;
+    });
+
+    if (agora - ultimoRegistroTrilha > 180) {
+      registrarTrilha();
+      ultimoRegistroTrilha = agora;
+    }
+
+    verificarColeta();
     atualizarHUD();
-    renderer.render(cena, camera);
+    desenharMinimapa();
+    desenharBussola();
+
+    if (usaBloom && composer) composer.render();
+    else renderer.render(cena, camera);
   }
 
   function atualizarHUD() {
-    document.getElementById('valAlpha').textContent = estado.alpha.toFixed(1) + '°';
-    document.getElementById('valBeta').textContent = estado.beta.toFixed(1) + '°';
-    document.getElementById('valGamma').textContent = estado.gamma.toFixed(1) + '°';
     document.getElementById('valPassos').textContent = estado.passos;
-    document.getElementById('valPosX').textContent = estado.posX.toFixed(2);
-    document.getElementById('valPosZ').textContent = estado.posZ.toFixed(2);
+    document.getElementById('valVel').textContent = estado.velocidadeAtual.toFixed(1) + ' m/s';
+    document.getElementById('valPos').textContent = estado.posX.toFixed(1) + ' / ' + estado.posZ.toFixed(1);
   }
 
-  // ---------- INICIALIZAÇÃO / PERMISSÕES ----------
+  // ============================================================
+  // INICIALIZAÇÃO / PERMISSÕES / BOTÕES
+  // ============================================================
+  function configurarBotoes() {
+    document.getElementById('btnReset').addEventListener('click', () => {
+      estado.posX = 0; estado.posZ = 0; estado.passos = 0;
+    });
+    document.getElementById('btnCalibrar').addEventListener('click', () => {
+      estado.offsetAlpha = estado.alpha;
+      mostrarToast('Norte recalibrado 🧭');
+    });
+    document.getElementById('btnSom').addEventListener('click', (e) => {
+      estado.somLigado = !estado.somLigado;
+      e.target.textContent = estado.somLigado ? '🔊' : '🔇';
+      if (gainAmbiente) gainAmbiente.gain.value = estado.somLigado ? 0.05 : 0;
+    });
+  }
+
   function entrarNoAmbiente(comSensores) {
     document.getElementById('painelInicio').style.display = 'none';
     document.getElementById('hud').style.display = 'block';
-    document.getElementById('btnReset').style.display = 'block';
 
     iniciarCena();
+    iniciarAudio();
+    configurarBotoes();
     estado.usaSensores = comSensores;
 
     if (comSensores) {
       window.addEventListener('deviceorientation', aoOrientar, true);
       window.addEventListener('devicemotion', aoMover, true);
+      ativarJoystick();
       setTimeout(() => {
         if (document.getElementById('stGiro').textContent === '—') {
           document.getElementById('stGiro').textContent = 'sem sinal';
@@ -357,10 +851,6 @@
       ativarControlesDesktop();
     }
 
-    document.getElementById('btnReset').addEventListener('click', () => {
-      estado.posX = 0; estado.posZ = 0; estado.passos = 0;
-    });
-
     animar();
   }
 
@@ -375,21 +865,16 @@
         if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
           respMotion = await DeviceMotionEvent.requestPermission();
         }
-        if (respOrient === 'granted' && respMotion === 'granted') {
-          entrarNoAmbiente(true);
-        } else {
-          alert('Permissão negada para os sensores. Entrando no modo mouse/teclado.');
-          entrarNoAmbiente(false);
-        }
+        if (respOrient === 'granted' && respMotion === 'granted') entrarNoAmbiente(true);
+        else { alert('Permissão negada. Entrando no modo mouse/teclado.'); entrarNoAmbiente(false); }
       } catch (erro) {
         console.warn('Erro ao pedir permissão de sensores:', erro);
         entrarNoAmbiente(false);
       }
     } else if (window.DeviceOrientationEvent) {
-      // Android e navegadores que não exigem permissão explícita
       entrarNoAmbiente(true);
     } else {
-      alert('Este dispositivo não parece ter sensores de orientação. Entrando no modo mouse/teclado.');
+      alert('Sem sensores de orientação neste dispositivo. Entrando no modo mouse/teclado.');
       entrarNoAmbiente(false);
     }
   }
