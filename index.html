@@ -85,7 +85,7 @@
 
 <div id="vignette"></div>
 <div id="hud">
-  yaw: <span id="y">0.0</span>° · pitch: <span id="p">0.0</span>° · roll: <span id="r">0.0</span>°<br>
+  yaw: <span id="y">0.0</span>° · pitch: <span id="p">0.0</span>°<br>
   <span id="modeY">-</span> · <span id="stillState">-</span>
 </div>
 <div id="reticle"></div>
@@ -110,12 +110,12 @@
     encaixe no visor.
   </p>
   <p style="font-size:11px; color:rgba(120,220,255,0.85)">
-    A câmera controla o giro pros lados (yaw), rastreando o quadro inteiro
-    com busca em diamante e consenso entre vários pontos. O acelerômetro
-    controla cima/baixo e a torção (pitch e roll) a partir da gravidade —
-    e a câmera ajusta essa leitura em tempo real (filtro complementar:
-    a câmera prevê o próximo ângulo, o acelerômetro corrige o desvio
-    acumulado). Sem depender de giroscópio de hardware nem de bússola.
+    Por enquanto só dois eixos: a câmera controla o giro pros lados (yaw),
+    rastreando o quadro inteiro com busca em diamante e consenso entre
+    vários pontos. O acelerômetro controla cima/baixo (pitch) a partir da
+    gravidade, e a câmera ajusta essa leitura em tempo real — quanto mais o
+    acelerômetro estiver "sujo" (aparelho sendo sacudido), mais peso vai
+    pra câmera automaticamente. Torção (roll) desativada por enquanto.
   </p>
   <div>
     <button id="startBtn">Ativar sensores</button>
@@ -211,40 +211,32 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
-// ================= Orientação: câmera = yaw · acelerômetro = pitch/roll =================
-// Este é o sistema do GIRO-VIO reaproveitado aqui, na interface do VR Box:
-//   - YAW (lados): vem só da câmera, que rastreia o quadro inteiro (busca em
-//     diamante multi-ponto com consenso) e integra o deslocamento horizontal
-//     médio. Isso é físico: girar em torno do eixo vertical não muda a
-//     direção da gravidade, então o acelerômetro é cego a essa rotação.
-//   - PITCH/ROLL (cima/baixo e torção): vêm do vetor de gravidade lido no
-//     acelerômetro (`accelerationIncludingGravity`), que dá o ângulo
-//     absoluto sem depender de bússola nem giroscópio de hardware.
-//   - A câmera AJUSTA o acelerômetro: o deslocamento vertical e a rotação-
-//     no-plano do campo de fluxo viram um "previsor" rápido; o acelerômetro
-//     entra como corretor lento (filtro complementar), suavizando ruído sem
-//     deixar o pitch/roll com aquele "salto" só-acelerômetro.
-// Nada disso depende de DeviceOrientationEvent (bússola) nem de
-// rotationRate (giroscópio de hardware) — só câmera + acelerômetro, que era
-// exatamente o pedido: sem depender do sensor de giro do aparelho, e sem a
-// direção errada que a fusão por bússola causava.
+// ================= Orientação: câmera = yaw · acelerômetro = pitch =================
+// Só dois eixos por enquanto: yaw (lados) e pitch (cima/baixo). Roll foi
+// removido — a cena não torce mais em torno do eixo de visão.
+//   - YAW: só a câmera, integrando o deslocamento horizontal médio do
+//     rastreamento multi-ponto (busca em diamante + consenso).
+//   - PITCH: vetor de gravidade do acelerômetro (`accelerationIncludingGravity`),
+//     ajustado pela câmera (previsor rápido) num filtro complementar cujo
+//     peso muda sozinho: quando o acelerômetro está "sujo" (aparelho sendo
+//     sacudido — a magnitude do vetor foge de ~9,81 m/s²), o peso vai mais
+//     pra câmera; parado, o acelerômetro domina e fica estável.
 
-let yaw = 0, pitch = 0, roll = 0;              // ângulos fundidos, radianos
-let yawOffset = 0, pitchOffset = 0, rollOffset = 0; // aplicados por "Recentralizar"
+let yaw = 0, pitch = 0;                          // ângulos fundidos, radianos
+let yawOffset = 0, pitchOffset = 0;               // aplicados por "Recentralizar"
 const MAX_PITCH = THREE.MathUtils.degToRad(85);
 
 let accReady = false;
-let accPitchRaw = 0, accRollRaw = 0;           // radianos, já remapeados pra orientação natural
+let accPitchRaw = 0;                              // radianos, já remapeado pra orientação natural
+let accTrust = 1;                                 // 1 = leitura de gravidade limpa, 0 = muito contaminada
 let fx = 0, fy = 0, fz = 0, accelFirst = true;
-const ALPHA_LP = 0.15;                          // suavização passa-baixa do acelerômetro
 
-let camPitchPredicted = 0, camRollPredicted = 0;
-const ALPHA_PITCH_CAM = 0.85;  // confiança na câmera pro pitch (predictor-corrector)
-const ALPHA_ROLL_CAM  = 0.6;   // confiança na câmera pro roll
+let camPitchPredicted = 0;
+const ALPHA_PITCH_MIN = 0.55; // peso da câmera quando o acelerômetro está limpo (parado)
+const ALPHA_PITCH_MAX = 0.93; // peso da câmera quando o acelerômetro está sujo (sacudindo)
 
-// Remapeia um vetor (x,y) do referencial cru do acelerômetro pro referencial
-// "natural" (topo do aparelho = cima), cancelando o efeito do lock de tela
-// em paisagem — essencial pro VR box, onde o celular fica deitado.
+// Remapeia (x,y) do referencial cru do acelerômetro pro referencial natural
+// (topo do aparelho = cima), cancelando o lock de tela em paisagem.
 function screenAngleDeg() {
   if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
   if (typeof window.orientation === 'number') return window.orientation;
@@ -262,33 +254,41 @@ function handleMotion(e) {
   const g = e.accelerationIncludingGravity;
   if (!g || typeof g.x !== 'number') return;
 
+  // confiança na leitura: quanto mais a magnitude foge de 9,81 m/s², mais
+  // o aparelho está sendo acelerado (não só inclinado) — a leitura de
+  // "pra onde é embaixo" fica contaminada por essa aceleração linear.
+  const rawMag = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z);
+  const deviation = Math.abs(rawMag - 9.81);
+  accTrust = THREE.MathUtils.clamp(1 - deviation / 6, 0.15, 1);
+
+  // filtro passa-baixa adaptativo: resposta rápida quando a leitura está
+  // limpa, filtragem mais forte (mais suave) quando está ruidosa — reduz
+  // tremedeira sem acrescentar atraso perceptível parado.
+  const lpRate = THREE.MathUtils.lerp(0.35, 0.10, 1 - accTrust);
   if (accelFirst) { fx = g.x; fy = g.y; fz = g.z; accelFirst = false; }
   else {
-    fx += (g.x - fx) * ALPHA_LP;
-    fy += (g.y - fy) * ALPHA_LP;
-    fz += (g.z - fz) * ALPHA_LP;
+    fx += (g.x - fx) * lpRate;
+    fy += (g.y - fy) * lpRate;
+    fz += (g.z - fz) * lpRate;
   }
   accReady = true;
 
   const rem = remapAxesToNatural(fx, fy, screenAngleDeg());
-  const ax = rem.x, ay = rem.y, az = fz;
-  accPitchRaw = Math.atan2(ay, Math.sqrt(ax * ax + az * az));
-  accRollRaw = Math.atan2(-ax, az);
+  accPitchRaw = Math.atan2(rem.y, Math.sqrt(rem.x * rem.x + fz * fz));
 }
 
 function fuseOrientation() {
   if (accReady) {
-    pitch = ALPHA_PITCH_CAM * camPitchPredicted + (1 - ALPHA_PITCH_CAM) * accPitchRaw;
-    roll = ALPHA_ROLL_CAM * camRollPredicted + (1 - ALPHA_ROLL_CAM) * accRollRaw;
+    const alphaPitch = THREE.MathUtils.lerp(ALPHA_PITCH_MIN, ALPHA_PITCH_MAX, 1 - accTrust);
+    pitch = alphaPitch * camPitchPredicted + (1 - alphaPitch) * accPitchRaw;
   } else {
     pitch = camPitchPredicted;
-    roll = camRollPredicted;
   }
   pitch = THREE.MathUtils.clamp(pitch, -MAX_PITCH, MAX_PITCH);
   yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); // normaliza -PI..PI
 }
 
-// ================= Câmera: fonte principal do yaw, corretor de pitch/roll =================
+// ================= Câmera: fonte principal do yaw, corretor do pitch =================
 const FINE_W = 48, FINE_H = 36;
 const FOV_H_DEG = 60;
 const FOV_V_DEG = FOV_H_DEG * (FINE_H / FINE_W);
@@ -516,34 +516,17 @@ function opticalFlowTick() {
     predictedDx = medDx; predictedDy = medDy;
     cameraTrust = consensus;
 
-    // Componente rotacional (torção) por mínimos quadrados no fluxo residual,
-    // igual à decomposição de fluxo do GIRO-VIO: pra uma rotação pura φ em
-    // torno do eixo óptico, (dx,dy) = (-y·φ, x·φ). Isso é o que alimenta o
-    // "ajuste" do roll.
-    let num = 0, den = 0;
-    const cx = FINE_W / 2, cy = FINE_H / 2;
-    for (const r of results) {
-      if (!inlierIds.has(r.id)) continue;
-      const x = r.x - cx, y = r.y - cy;
-      const dxr = r.dx - medDx, dyr = r.dy - medDy;
-      num += x * dyr - y * dxr;
-      den += x * x + y * y;
-    }
-    const rotPerFrame = den > 0 ? num / den : 0; // radianos de torção neste quadro
-
     if (consensus > YAW_TRUST_MIN) {
-      // YAW: só a câmera, integrado diretamente (delta angular por quadro)
+      // YAW: só a câmera, delta angular integrado diretamente a cada quadro
       const deltaYawDeg = -medDx * DEG_PER_PIXEL_X;
       yaw += THREE.MathUtils.degToRad(deltaYawDeg) * consensus;
 
-      // Previsor de PITCH e ROLL a partir do fluxo — o acelerômetro corrige
-      // isso no filtro complementar (fuseOrientation).
+      // Previsor de PITCH a partir do deslocamento vertical do fluxo — o
+      // acelerômetro corrige isso no filtro complementar (fuseOrientation).
       const deltaPitchDeg = -medDy * DEG_PER_PIXEL_Y;
       camPitchPredicted = pitch + THREE.MathUtils.degToRad(deltaPitchDeg) * consensus;
-      camRollPredicted = roll + rotPerFrame * consensus;
     } else {
       camPitchPredicted = pitch;
-      camRollPredicted = roll;
     }
 
     document.getElementById('stillState').textContent = `${inlierIds.size}/${results.length} pts`;
@@ -557,7 +540,6 @@ function opticalFlowTick() {
     document.getElementById('stillState').textContent = `${results.length} pts (insuficiente)`;
     cameraTrust *= 0.5;
     camPitchPredicted = pitch;
-    camRollPredicted = roll;
   }
 
   drawTrackDebug(activePoints, inlierIds);
@@ -597,7 +579,6 @@ function showCameraError(err) {
 document.getElementById('calibBtn').addEventListener('click', () => {
   yawOffset = yaw;
   pitchOffset = pitch;
-  rollOffset = roll;
   if (navigator.vibrate) navigator.vibrate(30);
 });
 
@@ -671,7 +652,11 @@ document.getElementById('vrBtn').addEventListener('click', async () => {
 });
 
 // ================= Loop =================
+// Suavização visual leve por cima do estado fundido: reduz tremedeira sem
+// adicionar atraso perceptível (o estado por trás já atualiza rápido).
+let smoothYaw = 0, smoothPitch = 0;
 let lastYawForSpeed = 0, lastYawSpeedTickTime = performance.now();
+const SMOOTH_RATE = 0.4;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -688,23 +673,25 @@ function animate() {
 
   const dispYaw = yaw - yawOffset;
   const dispPitch = pitch - pitchOffset;
-  const dispRoll = roll - rollOffset;
+
+  const yawDiff = Math.atan2(Math.sin(dispYaw - smoothYaw), Math.cos(dispYaw - smoothYaw));
+  smoothYaw += yawDiff * SMOOTH_RATE;
+  smoothPitch += (dispPitch - smoothPitch) * SMOOTH_RATE;
 
   neckPivot.rotation.order = 'YXZ';
-  neckPivot.rotation.set(dispPitch, dispYaw, dispRoll);
+  neckPivot.rotation.set(smoothPitch, smoothYaw, 0);
 
   const now = performance.now();
   const dtSpeed = Math.max(0.001, (now - lastYawSpeedTickTime) / 1000);
-  const yawSpeedDeg = Math.abs(THREE.MathUtils.radToDeg(dispYaw - lastYawForSpeed)) / dtSpeed;
-  lastYawForSpeed = dispYaw;
+  const yawSpeedDeg = Math.abs(THREE.MathUtils.radToDeg(smoothYaw - lastYawForSpeed)) / dtSpeed;
+  lastYawForSpeed = smoothYaw;
   lastYawSpeedTickTime = now;
   document.getElementById('vignette').style.opacity = Math.min(0.55, yawSpeedDeg / 260).toFixed(2);
 
-  document.getElementById('y').textContent = THREE.MathUtils.radToDeg(dispYaw).toFixed(1);
-  document.getElementById('p').textContent = THREE.MathUtils.radToDeg(dispPitch).toFixed(1);
-  document.getElementById('r').textContent = THREE.MathUtils.radToDeg(dispRoll).toFixed(1);
+  document.getElementById('y').textContent = THREE.MathUtils.radToDeg(smoothYaw).toFixed(1);
+  document.getElementById('p').textContent = THREE.MathUtils.radToDeg(smoothPitch).toFixed(1);
   document.getElementById('modeY').textContent = accReady
-    ? `câmera (yaw) + acelerômetro (pitch/roll) · confiança cam ${(cameraTrust * 100).toFixed(0)}%`
+    ? `câmera (yaw) + acelerômetro (pitch) · confiança acel ${(accTrust * 100).toFixed(0)}% · confiança cam ${(cameraTrust * 100).toFixed(0)}%`
     : 'aguardando acelerômetro…';
 
   if (stereoMode) {
