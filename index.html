@@ -169,7 +169,8 @@
 <div id="hud">
   yaw: <span id="y">0.0</span>° · pitch: <span id="p">0.0</span>°<br>
   <span id="modeY">-</span> · <span id="stillState">-</span><br>
-  passos: <span id="stepCount">0</span> · <span id="walkState">parado</span>
+  passos: <span id="stepCount">0</span> · <span id="walkState">parado</span><br>
+  objeto móvel à frente: <span id="motionObj">-</span>
 </div>
 <div id="reticle"></div>
 <video id="camPreview" playsinline autoplay muted></video>
@@ -575,6 +576,93 @@ const CANDIDATE_CELLS = (() => {
   return cells;
 })();
 
+// ================= Pontos de verificação: detecção de objeto em movimento =================
+// Malha densa que cobre TODOS os pixels do quadro de rastreamento (não só
+// os pontos esparsos escolhidos por variância acima). A cada quadro, o
+// quadro anterior é deslocado pela estimativa de rotação global já
+// calculada (predictedDx/predictedDy) e comparado pixel a pixel com o
+// quadro atual. Se a cena inteira só girou junto com a cabeça, o resíduo
+// depois dessa compensação fica baixo e uniforme em todo lugar. Um objeto
+// que se move sozinho na frente da câmera (uma pessoa passando, uma mão)
+// se move DIFERENTE do resto do fundo, então os blocos que cobrem esse
+// objeto continuam com resíduo alto mesmo depois da compensação — é isso
+// que os pontos de verificação acusam.
+const MOTION_BLOCK_SIZE = 4;                                   // px — cada bloco cobre 4x4 pixels, juntos cobrem o quadro inteiro
+const MOTION_GRID_COLS = Math.floor(FINE_W / MOTION_BLOCK_SIZE); // 12
+const MOTION_GRID_ROWS = Math.floor(FINE_H / MOTION_BLOCK_SIZE); // 9
+const MOTION_RESIDUAL_SMOOTH = 0.3;      // suaviza o resíduo de cada bloco no tempo, evita piscar
+const MOTION_ANOMALY_FACTOR = 2.2;       // quanto acima da mediana da cena pra contar como "estranho"
+const MOTION_ANOMALY_MARGIN = 6;         // margem mínima absoluta de diferença de brilho (0-255)
+const MOTION_MIN_FLAGGED_RATIO = 0.05;   // % mínima de blocos acesos pra declarar "tem objeto na frente"
+
+let motionBlockResidual = new Float32Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
+let motionBlockFlagged = new Uint8Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
+let motionCheckpointsReady = false;
+let foreignObjectDetected = false;
+let foreignObjectRatio = 0;
+
+// Passa por TODOS os pixels do quadro (não só os candidatos de
+// rastreamento) somando a diferença de brilho contra o quadro anterior já
+// deslocado pela rotação global, e acumula isso em blocos MOTION_BLOCK_SIZE.
+function computeMotionResiduals(prevGray, currGray, w, h, shiftDx, shiftDy) {
+  const sdx = Math.round(shiftDx), sdy = Math.round(shiftDy);
+  const sums = new Float32Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
+  const counts = new Int32Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
+
+  for (let y = 0; y < h; y++) {
+    const sy = y + sdy;
+    if (sy < 0 || sy >= h) continue;
+    const by = Math.min(MOTION_GRID_ROWS - 1, (y / MOTION_BLOCK_SIZE) | 0);
+    const rowCur = y * w, rowPrev = sy * w;
+    for (let x = 0; x < w; x++) {
+      const sx = x + sdx;
+      if (sx < 0 || sx >= w) continue;
+      const bx = Math.min(MOTION_GRID_COLS - 1, (x / MOTION_BLOCK_SIZE) | 0);
+      const idx = by * MOTION_GRID_COLS + bx;
+      sums[idx] += Math.abs(currGray[rowCur + x] - prevGray[rowPrev + sx]);
+      counts[idx]++;
+    }
+  }
+
+  const avg = new Float32Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
+  for (let i = 0; i < avg.length; i++) avg[i] = counts[i] > 0 ? sums[i] / counts[i] : 0;
+  return avg;
+}
+
+// Atualiza os pontos de verificação pra este quadro: suaviza o resíduo de
+// cada bloco, usa a mediana da cena inteira como referência do que é
+// "fundo normal" (robusto contra mudança geral de luz) e acende os blocos
+// cujo resíduo estourou bem acima disso.
+function updateMotionCheckpoints(prevGray, currGray, w, h, shiftDx, shiftDy) {
+  const raw = computeMotionResiduals(prevGray, currGray, w, h, shiftDx, shiftDy);
+  const sorted = new Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    motionBlockResidual[i] = motionCheckpointsReady
+      ? motionBlockResidual[i] + (raw[i] - motionBlockResidual[i]) * MOTION_RESIDUAL_SMOOTH
+      : raw[i];
+    sorted[i] = motionBlockResidual[i];
+  }
+  motionCheckpointsReady = true;
+  sorted.sort((a, b) => a - b);
+  const medianResidual = sorted[Math.floor(sorted.length / 2)];
+  const threshold = medianResidual * MOTION_ANOMALY_FACTOR + MOTION_ANOMALY_MARGIN;
+
+  let flaggedCount = 0;
+  for (let i = 0; i < motionBlockResidual.length; i++) {
+    const flagged = motionBlockResidual[i] > threshold;
+    motionBlockFlagged[i] = flagged ? 1 : 0;
+    if (flagged) flaggedCount++;
+  }
+  foreignObjectRatio = flaggedCount / motionBlockResidual.length;
+  foreignObjectDetected = foreignObjectRatio >= MOTION_MIN_FLAGGED_RATIO;
+}
+
+function isPixelInFlaggedMotionBlock(px, py) {
+  const bx = Math.min(MOTION_GRID_COLS - 1, (px / MOTION_BLOCK_SIZE) | 0);
+  const by = Math.min(MOTION_GRID_ROWS - 1, (py / MOTION_BLOCK_SIZE) | 0);
+  return motionBlockFlagged[by * MOTION_GRID_COLS + bx] === 1;
+}
+
 let pointState = new Map();
 let cameraActive = false;
 let lastOpticalFlowTickTime = 0;
@@ -798,6 +886,11 @@ function selectActivePoints(ii) {
   const minSepSq = MIN_POINT_SEPARATION * MIN_POINT_SEPARATION;
   for (const s of scored) {
     if (active.length >= MAX_ACTIVE_POINTS) break;
+    // pula candidatos que caem em cima de um objeto estranho detectado
+    // pelos pontos de verificação — evita que a rotação estimada seja
+    // contaminada por algo que se move sozinho na cena (ex.: uma pessoa
+    // passando na frente), já que esse ponto não representa o fundo fixo.
+    if (motionCheckpointsReady && isPixelInFlaggedMotionBlock(s.cell.x, s.cell.y)) continue;
     let tooClose = false;
     for (const p of active) {
       const ddx = p.x - s.cell.x, ddy = p.y - s.cell.y;
@@ -810,6 +903,26 @@ function selectActivePoints(ii) {
 
 function drawTrackDebug(activePoints, inlierIds) {
   trackCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
+
+  // realça em laranja os blocos onde os pontos de verificação detectaram
+  // algo se movendo independente do resto da cena
+  if (motionCheckpointsReady) {
+    const scaleX = trackCanvas.width / FINE_W;
+    const scaleY = trackCanvas.height / FINE_H;
+    trackCtx.save();
+    for (let by = 0; by < MOTION_GRID_ROWS; by++) {
+      for (let bx = 0; bx < MOTION_GRID_COLS; bx++) {
+        if (!motionBlockFlagged[by * MOTION_GRID_COLS + bx]) continue;
+        trackCtx.fillStyle = 'rgba(255,90,30,0.35)';
+        trackCtx.fillRect(
+          bx * MOTION_BLOCK_SIZE * scaleX, by * MOTION_BLOCK_SIZE * scaleY,
+          MOTION_BLOCK_SIZE * scaleX, MOTION_BLOCK_SIZE * scaleY
+        );
+      }
+    }
+    trackCtx.restore();
+  }
+
   for (const cell of activePoints) {
     trackCtx.fillStyle = inlierIds.has(cell.id) ? 'rgba(120,255,170,0.9)' : 'rgba(255,90,90,0.8)';
     trackCtx.fillRect(cell.x - 1, cell.y - 1, 2, 2);
@@ -898,6 +1011,12 @@ function opticalFlowTick() {
 
     predictedDx = medDx; predictedDy = medDy;
     cameraTrust = consensus;
+
+    // pontos de verificação: compensa o quadro anterior pela rotação
+    // global que acabamos de estimar e compara pixel a pixel com o
+    // quadro atual, em blocos que cobrem o quadro inteiro — o que sobra
+    // de resíduo alto e localizado é objeto se movendo sozinho na cena.
+    updateMotionCheckpoints(prevFine, currFine, FINE_W, FINE_H, predictedDx, predictedDy);
 
     if (consensus > YAW_TRUST_MIN) {
       const deltaYawDeg = -medDx * DEG_PER_PIXEL_X;
@@ -1636,6 +1755,9 @@ function animate() {
     : 'aguardando acelerômetro…';
   document.getElementById('stepCount').textContent = stepCount;
   document.getElementById('walkState').textContent = walking ? 'andando' : 'parado';
+  document.getElementById('motionObj').textContent = motionCheckpointsReady
+    ? (foreignObjectDetected ? `SIM (${(foreignObjectRatio * 100).toFixed(0)}% da cena)` : 'não')
+    : '-';
 
   if (stereoMode) {
     const w = innerWidth, h = innerHeight, halfW = w / 2;
@@ -1656,4 +1778,3 @@ animate();
 </script>
 </body>
 </html>
-
