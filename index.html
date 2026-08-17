@@ -168,7 +168,8 @@
 <div id="vignette"></div>
 <div id="hud">
   yaw: <span id="y">0.0</span>° · pitch: <span id="p">0.0</span>°<br>
-  <span id="modeY">-</span> · <span id="stillState">-</span>
+  <span id="modeY">-</span> · <span id="stillState">-</span><br>
+  passos: <span id="stepCount">0</span> · <span id="walkState">parado</span>
 </div>
 <div id="reticle"></div>
 <video id="camPreview" playsinline autoplay muted></video>
@@ -425,6 +426,13 @@ function handleMotion(e) {
 
   const rem = remapAxesToNatural(fx, fy, screenAngleDeg());
   accPitchRaw = Math.atan2(rem.y, Math.sqrt(rem.x * rem.x + fz * fz));
+
+  const r = e.rotationRate;
+  if (r && typeof r.alpha === 'number') {
+    gyroMagnitude = Math.sqrt((r.alpha || 0) ** 2 + (r.beta || 0) ** 2 + (r.gamma || 0) ** 2);
+  }
+
+  handlePedometerMotion(g);
 }
 
 function fuseOrientation() {
@@ -436,6 +444,101 @@ function fuseOrientation() {
   }
   pitch = THREE.MathUtils.clamp(pitch, -MAX_PITCH, MAX_PITCH);
   yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); // normaliza -PI..PI
+}
+
+// ================= Locomoção: só anda se andar de verdade =================
+// Sem GPS aqui — dentro de casa/com o headset o GPS não tem precisão pra
+// detectar passo nenhum, então a fonte de "o jogador andou" é um
+// pedômetro adaptativo em cima do acelerômetro + giroscópio, com três
+// filtros pra não confundir "chacoalhar o celular na mão" com "andar":
+//
+//  1) Isolamento de eixo: em vez de olhar só a magnitude total do
+//     acelerômetro (que sobe com sacudida em qualquer direção), separa a
+//     aceleração "dinâmica" (bruta menos a gravidade filtrada) em
+//     componente VERTICAL (projeção no eixo da gravidade — o bounce
+//     característico do passo) e HORIZONTAL (tudo que sobra). Só conta
+//     como possível passo se o vertical dominar claramente o horizontal;
+//     chacoalhar a mão tende a gerar aceleração espalhada em vários
+//     eixos, não um bounce vertical limpo.
+//  2) Confirmação por giroscópio: giro brusco no instante do pico
+//     invalida (girar o pulso/ajeitar o celular no headset não conta).
+//  3) Cadência consistente: um pico isolado não move ninguém — só depois
+//     de alguns picos seguidos com intervalo dentro da faixa plausível de
+//     passada humana (nem rápido demais, nem espaçado demais) o jogador
+//     começa a andar. Uma sacudida isolada nunca acumula essa sequência.
+let gyroMagnitude = 0;               // °/s, magnitude do giroscópio no instante
+
+const STEP_MIN_INTERVAL_MS = 250;       // cadência máxima plausível (~240 passos/min)
+const STEP_MAX_PLAUSIBLE_MS = 1100;     // intervalo maior que isso quebra a sequência de cadência
+const STEP_MAX_INTERVAL_MS = 1500;      // sem passo novo até aqui, considera que parou de vez
+const STEP_PEAK_THRESHOLD = 1.6;        // m/s² de bounce vertical pra contar como pico
+const STEP_VALLEY_THRESHOLD = 0.3;      // precisa "descer" até aqui antes do próximo pico valer
+const STEP_GYRO_MAX_DPS = 220;          // giro acima disso no instante do pico invalida o passo
+const STEP_VERTICAL_DOMINANCE_MIN = 1.2;// vertical precisa ser pelo menos 1.2x o horizontal
+const STEP_STREAK_TO_WALK = 2;          // passos seguidos com cadência plausível antes de mover
+const STEP_LENGTH_M = 0.7;              // avanço por passo confirmado
+
+let verticalFiltered = 0, horizontalFiltered = 0;
+let pedometerArmed = true;           // true = já passou pelo vale, pronto pra contar o próximo pico
+let lastStepTime = 0;
+let stepStreak = 0;                  // quantos picos seguidos bateram cadência plausível
+let stepCount = 0;
+let walking = false;
+
+let targetPlayerX = 0, targetPlayerZ = 0;
+let playerX = 0, playerZ = 0;
+const PLAYER_MOVE_SMOOTH = 0.15;     // suaviza o avanço do passo em vez de teleportar
+
+function confirmStep() {
+  // avança na direção pra onde a cabeça está olhando (yaw suavizado, já
+  // com o offset de "Recentralizar" aplicado), só no plano horizontal
+  targetPlayerX -= Math.sin(smoothYaw) * STEP_LENGTH_M;
+  targetPlayerZ -= Math.cos(smoothYaw) * STEP_LENGTH_M;
+  stepCount++;
+  if (navigator.vibrate) navigator.vibrate(12);
+}
+
+function registerStepCandidate(interval) {
+  // interval == a primeira leitura (lastStepTime ainda em 0) sempre cai
+  // fora da faixa plausível, então o primeiro pico de uma sequência nova
+  // sempre reinicia o streak em 1 em vez de mover na hora
+  stepStreak = interval <= STEP_MAX_PLAUSIBLE_MS ? stepStreak + 1 : 1;
+  if (stepStreak >= STEP_STREAK_TO_WALK) confirmStep();
+}
+
+function handlePedometerMotion(g) {
+  // vetor de aceleração "dinâmica": bruto menos a gravidade já filtrada (fx,fy,fz)
+  const gravMag = Math.sqrt(fx * fx + fy * fy + fz * fz) || 9.81;
+  const downX = fx / gravMag, downY = fy / gravMag, downZ = fz / gravMag;
+  const linX = g.x - fx, linY = g.y - fy, linZ = g.z - fz;
+
+  // projeta no eixo da gravidade (vertical) e no que sobra (horizontal)
+  const vertical = linX * downX + linY * downY + linZ * downZ;
+  const horizMagSq = Math.max(0, (linX * linX + linY * linY + linZ * linZ) - vertical * vertical);
+  const horizontal = Math.sqrt(horizMagSq);
+
+  verticalFiltered += (vertical - verticalFiltered) * 0.35;
+  horizontalFiltered += (horizontal - horizontalFiltered) * 0.35;
+
+  const now = performance.now();
+
+  if (pedometerArmed && verticalFiltered >= STEP_PEAK_THRESHOLD) {
+    const interval = now - lastStepTime;
+    const verticalDominance = Math.abs(verticalFiltered) / (horizontalFiltered + 0.15);
+    const passedFilters = interval >= STEP_MIN_INTERVAL_MS
+      && gyroMagnitude < STEP_GYRO_MAX_DPS
+      && verticalDominance >= STEP_VERTICAL_DOMINANCE_MIN;
+
+    if (passedFilters) registerStepCandidate(interval);
+    else stepStreak = 0; // pico não bateu o formato de passo — quebra a sequência
+
+    lastStepTime = now;
+    pedometerArmed = false; // só conta de novo depois de passar pelo vale
+  } else if (!pedometerArmed && verticalFiltered <= STEP_VALLEY_THRESHOLD) {
+    pedometerArmed = true;
+  }
+
+  walking = stepStreak >= STEP_STREAK_TO_WALK && (now - lastStepTime) < STEP_MAX_INTERVAL_MS;
 }
 
 // ================= Câmera: fonte principal do yaw, corretor do pitch =================
@@ -1514,6 +1617,10 @@ function animate() {
   neckPivot.rotation.order = 'YXZ';
   neckPivot.rotation.set(smoothPitch, smoothYaw, 0);
 
+  playerX += (targetPlayerX - playerX) * PLAYER_MOVE_SMOOTH;
+  playerZ += (targetPlayerZ - playerZ) * PLAYER_MOVE_SMOOTH;
+  neckPivot.position.set(playerX, 0, playerZ);
+
   const now = performance.now();
   const dtSpeed = Math.max(0.001, (now - lastYawSpeedTickTime) / 1000);
   const yawSpeedDeg = Math.abs(THREE.MathUtils.radToDeg(smoothYaw - lastYawForSpeed)) / dtSpeed;
@@ -1527,6 +1634,8 @@ function animate() {
     ? `câmera (yaw) + acelerômetro (pitch) · acel ${(accTrust * 100).toFixed(0)}% · cam ${(cameraTrust * 100).toFixed(0)}% · análise ${(1000 / Math.max(1, OPTICAL_FLOW_MIN_INTERVAL_MS)).toFixed(0)}Hz`
       + (lastEstimatedSpeedDegPerSec !== null ? ` · vel.est ${lastEstimatedSpeedDegPerSec.toFixed(0)}°/s` : '')
     : 'aguardando acelerômetro…';
+  document.getElementById('stepCount').textContent = stepCount;
+  document.getElementById('walkState').textContent = walking ? 'andando' : 'parado';
 
   if (stereoMode) {
     const w = innerWidth, h = innerHeight, halfW = w / 2;
