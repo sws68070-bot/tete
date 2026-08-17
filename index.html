@@ -161,6 +161,64 @@
     display: none; font-size: 12px; color: rgba(120,255,170,0.9); margin-top: 8px;
     line-height: 1.7; text-align: left; max-width: 320px;
   }
+
+  #aiRecalibOverlay {
+    display: none; position: fixed; inset: 0; z-index: 23;
+    background: rgba(5,7,10,0.98); color: #fff; flex-direction: column;
+    align-items: stretch; padding: 16px; overflow-y: auto;
+  }
+  #aiRecalibOverlay.active { display: flex; }
+  #aiRecalibOverlay h2 { text-align: center; margin: 4px 0 2px; }
+  #aiRecalibOverlay h3 { font-size: 13px; margin: 14px 0 4px; color: #ffb020; }
+  #aiRecalibOverlay p.hint { color: rgba(255,255,255,0.6); font-size: 11.5px; max-width: 640px; margin: 0 auto 6px; line-height: 1.5; text-align: center; }
+  .aiSection {
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px;
+    max-width: 640px; width: 100%; margin: 0 auto 12px; box-sizing: border-box;
+  }
+  .aiRow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: center; margin: 6px 0; }
+  .aiRow label { font-size: 11px; color: rgba(255,255,255,0.7); }
+  .aiRow input[type=number], .aiRow input[type=password], .aiRow input[type=text], .aiRow select {
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.25); color: #fff;
+    border-radius: 6px; padding: 7px 8px; font-size: 12px;
+  }
+  .aiRow select { max-width: 220px; }
+  .aiBtn {
+    padding: 9px 14px; border-radius: 8px; border: none; font-size: 12px; font-weight: 700;
+    background: rgba(255,255,255,0.1); color: #fff; cursor: pointer;
+  }
+  .aiBtn.primary { background: #ffb020; color: #071018; }
+  .aiBtn.danger { background: rgba(255,90,90,0.25); color: #ffb0b0; }
+  .aiBtn:disabled { opacity: 0.45; }
+  #manualAngleStrip, #aiMediaStrip {
+    display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px; min-height: 60px;
+  }
+  .aiThumb { position: relative; flex: 0 0 auto; text-align: center; }
+  .aiThumb img, .aiThumb video {
+    width: 72px; height: 54px; object-fit: cover; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.3); display: block; background: #111;
+  }
+  .aiThumb .aiThumbLabel {
+    font-size: 9px; font-family: monospace; color: #4fff88; margin-top: 2px;
+  }
+  .aiThumb .aiThumbRemove {
+    position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(255,60,60,0.9); color: #fff; font-size: 10px; line-height: 16px; text-align: center;
+    border: none; padding: 0; cursor: pointer;
+  }
+  #aiAngleCapturePreview {
+    width: 160px; height: 120px; object-fit: cover; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.3); display: none; margin: 6px auto;
+  }
+  #aiLog {
+    font-family: monospace; font-size: 10.5px; white-space: pre-wrap; text-align: left;
+    background: rgba(0,0,0,0.4); border-radius: 8px; padding: 8px; max-height: 160px;
+    overflow-y: auto; color: rgba(120,220,255,0.9); line-height: 1.5;
+  }
+  #aiResultSummary {
+    display: none; font-size: 12px; color: rgba(120,255,170,0.9); line-height: 1.7;
+    text-align: left; background: rgba(79,255,136,0.08); border-radius: 8px; padding: 10px;
+  }
+  #aiCloseBtn { position: sticky; top: 0; align-self: flex-end; margin: 0 0 6px; }
 </style>
 </head>
 <body>
@@ -208,6 +266,105 @@
   <div id="scenePrepButtons">
     <button id="scenePrepCancelBtn" class="overlayCancelBtn">Fechar</button>
     <button id="scenePrepCaptureBtn" class="overlayDoneBtn">Capturar foto</button>
+    <button id="scenePrepOpenAiBtn" class="overlayDoneBtn" style="background:rgba(120,220,255,0.85);color:#071018">Recalibração com IA →</button>
+  </div>
+</div>
+
+<div id="aiRecalibOverlay">
+  <button id="aiCloseBtn" class="aiBtn">Fechar ✕</button>
+  <h2>Recalibração com IA (Gemini)</h2>
+  <p class="hint">
+    Tire fotos manuais informando o ângulo real que cada uma representa, e/ou
+    solte quantas fotos e vídeos quiser pra IA analisar. A IA compara o que
+    vê contra os ângulos informados e contra o comportamento esperado do
+    rastreamento, e sugere novos valores de calibração — que são aplicados
+    automaticamente ao terminar.
+  </p>
+
+  <div class="aiSection">
+    <h3>1. Captura manual com ângulo conhecido</h3>
+    <p class="hint">
+      Aponte o celular pra uma direção conhecida (ex.: gire exatamente 90°
+      a partir do centro), tire a foto e diga qual ângulo de yaw ela
+      representa. Quanto mais ângulos diferentes, melhor a IA consegue
+      medir o FOV real da câmera.
+    </p>
+    <video id="aiAngleCapturePreview" playsinline muted></video>
+    <div class="aiRow">
+      <button id="aiCapturePhotoBtn" class="aiBtn primary">📷 Tirar foto</button>
+      <label>Ângulo (yaw, graus): <input type="number" id="aiAngleInput" value="0" step="1" style="width:70px"></label>
+      <button id="aiSaveAnglePhotoBtn" class="aiBtn" disabled>Salvar com esse ângulo</button>
+    </div>
+    <div id="manualAngleStrip"></div>
+  </div>
+
+  <div class="aiSection">
+    <h3>2. Fotos e vídeos ilimitados</h3>
+    <p class="hint">
+      Adicione quantas fotos e vídeos quiser (da galeria ou gravados agora).
+      Não precisa saber o ângulo desses — a IA usa pra entender o
+      comportamento geral do rastreamento (borrão, FOV, distorção, cenário).
+    </p>
+    <div class="aiRow">
+      <label class="aiBtn">📁 Adicionar arquivos
+        <input type="file" id="aiFileInput" accept="image/*,video/*" multiple style="display:none">
+      </label>
+      <button id="aiRecordVideoBtn" class="aiBtn">🎥 Gravar vídeo agora</button>
+      <button id="aiGenSampleVideoBtn" class="aiBtn">🧪 Gerar vídeo de exemplo</button>
+      <button id="aiClearMediaBtn" class="aiBtn danger">Limpar tudo</button>
+    </div>
+    <div id="aiMediaStrip"></div>
+    <div style="font-size:10.5px;color:rgba(255,255,255,0.45)">
+      Itens na fila: <span id="aiMediaCount">0</span> (sem limite — quanto mais, mais precisa a análise, mas mais lenta/cara a chamada à API)
+    </div>
+  </div>
+
+  <div class="aiSection">
+    <h3>3. API Gemini</h3>
+    <div class="aiRow">
+      <label>Chave da API: <input type="password" id="aiApiKeyInput" placeholder="cole sua chave do Google AI Studio" style="width:220px"></label>
+    </div>
+    <div class="aiRow">
+      <label>Modelo:
+        <select id="aiModelSelect">
+          <option value="gemini-2.5-flash">gemini-2.5-flash (rápido, recomendado)</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro (mais preciso, mais lento)</option>
+          <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+          <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+          <option value="custom">outro (digitar manualmente)</option>
+        </select>
+      </label>
+      <input type="text" id="aiModelCustomInput" placeholder="nome exato do modelo" style="display:none;width:160px">
+    </div>
+    <p class="hint" style="font-size:10px">
+      A chave fica só no seu navegador (salva em localStorage neste
+      arquivo) e é usada direto nas chamadas do seu navegador pra API do
+      Google — nada passa por servidor nenhum além do da própria Google.
+    </p>
+  </div>
+
+  <div class="aiSection">
+    <h3>4. Testar o cubo com um vídeo</h3>
+    <p class="hint">
+      Sem precisar segurar o celular: gera (ou usa um vídeo já adicionado)
+      pra tocar como se fosse a câmera ao vivo, alimentando o mesmo
+      pipeline de rastreamento — bom pra ver o cubo reagir e pra dar à IA
+      um caso de teste completo com movimento conhecido.
+    </p>
+    <div class="aiRow">
+      <button id="aiPlayTestVideoBtn" class="aiBtn">▶ Testar cubo com vídeo de exemplo</button>
+      <button id="aiStopTestVideoBtn" class="aiBtn" style="display:none">⏹ Parar teste</button>
+    </div>
+  </div>
+
+  <div class="aiSection">
+    <h3>5. Analisar e recalibrar</h3>
+    <div class="aiRow">
+      <button id="aiAnalyzeBtn" class="aiBtn primary">🤖 Analisar com a IA e recalibrar</button>
+    </div>
+    <div id="aiLog"></div>
+    <div id="aiResultSummary"></div>
   </div>
 </div>
 
@@ -448,25 +605,6 @@ function fuseOrientation() {
 }
 
 // ================= Locomoção: só anda se andar de verdade =================
-// Sem GPS aqui — dentro de casa/com o headset o GPS não tem precisão pra
-// detectar passo nenhum, então a fonte de "o jogador andou" é um
-// pedômetro adaptativo em cima do acelerômetro + giroscópio, com três
-// filtros pra não confundir "chacoalhar o celular na mão" com "andar":
-//
-//  1) Isolamento de eixo: em vez de olhar só a magnitude total do
-//     acelerômetro (que sobe com sacudida em qualquer direção), separa a
-//     aceleração "dinâmica" (bruta menos a gravidade filtrada) em
-//     componente VERTICAL (projeção no eixo da gravidade — o bounce
-//     característico do passo) e HORIZONTAL (tudo que sobra). Só conta
-//     como possível passo se o vertical dominar claramente o horizontal;
-//     chacoalhar a mão tende a gerar aceleração espalhada em vários
-//     eixos, não um bounce vertical limpo.
-//  2) Confirmação por giroscópio: giro brusco no instante do pico
-//     invalida (girar o pulso/ajeitar o celular no headset não conta).
-//  3) Cadência consistente: um pico isolado não move ninguém — só depois
-//     de alguns picos seguidos com intervalo dentro da faixa plausível de
-//     passada humana (nem rápido demais, nem espaçado demais) o jogador
-//     começa a andar. Uma sacudida isolada nunca acumula essa sequência.
 let gyroMagnitude = 0;               // °/s, magnitude do giroscópio no instante
 
 const STEP_MIN_INTERVAL_MS = 250;       // cadência máxima plausível (~240 passos/min)
@@ -480,19 +618,17 @@ const STEP_STREAK_TO_WALK = 2;          // passos seguidos com cadência plausí
 const STEP_LENGTH_M = 0.7;              // avanço por passo confirmado
 
 let verticalFiltered = 0, horizontalFiltered = 0;
-let pedometerArmed = true;           // true = já passou pelo vale, pronto pra contar o próximo pico
+let pedometerArmed = true;
 let lastStepTime = 0;
-let stepStreak = 0;                  // quantos picos seguidos bateram cadência plausível
+let stepStreak = 0;
 let stepCount = 0;
 let walking = false;
 
 let targetPlayerX = 0, targetPlayerZ = 0;
 let playerX = 0, playerZ = 0;
-const PLAYER_MOVE_SMOOTH = 0.15;     // suaviza o avanço do passo em vez de teleportar
+const PLAYER_MOVE_SMOOTH = 0.15;
 
 function confirmStep() {
-  // avança na direção pra onde a cabeça está olhando (yaw suavizado, já
-  // com o offset de "Recentralizar" aplicado), só no plano horizontal
   targetPlayerX -= Math.sin(smoothYaw) * STEP_LENGTH_M;
   targetPlayerZ -= Math.cos(smoothYaw) * STEP_LENGTH_M;
   stepCount++;
@@ -500,20 +636,15 @@ function confirmStep() {
 }
 
 function registerStepCandidate(interval) {
-  // interval == a primeira leitura (lastStepTime ainda em 0) sempre cai
-  // fora da faixa plausível, então o primeiro pico de uma sequência nova
-  // sempre reinicia o streak em 1 em vez de mover na hora
   stepStreak = interval <= STEP_MAX_PLAUSIBLE_MS ? stepStreak + 1 : 1;
   if (stepStreak >= STEP_STREAK_TO_WALK) confirmStep();
 }
 
 function handlePedometerMotion(g) {
-  // vetor de aceleração "dinâmica": bruto menos a gravidade já filtrada (fx,fy,fz)
   const gravMag = Math.sqrt(fx * fx + fy * fy + fz * fz) || 9.81;
   const downX = fx / gravMag, downY = fy / gravMag, downZ = fz / gravMag;
   const linX = g.x - fx, linY = g.y - fy, linZ = g.z - fz;
 
-  // projeta no eixo da gravidade (vertical) e no que sobra (horizontal)
   const vertical = linX * downX + linY * downY + linZ * downZ;
   const horizMagSq = Math.max(0, (linX * linX + linY * linY + linZ * linZ) - vertical * vertical);
   const horizontal = Math.sqrt(horizMagSq);
@@ -531,10 +662,10 @@ function handlePedometerMotion(g) {
       && verticalDominance >= STEP_VERTICAL_DOMINANCE_MIN;
 
     if (passedFilters) registerStepCandidate(interval);
-    else stepStreak = 0; // pico não bateu o formato de passo — quebra a sequência
+    else stepStreak = 0;
 
     lastStepTime = now;
-    pedometerArmed = false; // só conta de novo depois de passar pelo vale
+    pedometerArmed = false;
   } else if (!pedometerArmed && verticalFiltered <= STEP_VALLEY_THRESHOLD) {
     pedometerArmed = true;
   }
@@ -546,8 +677,6 @@ function handlePedometerMotion(g) {
 const FINE_W = 48, FINE_H = 36;
 const FOV_H_DEG = 60;
 const FOV_V_DEG = FOV_H_DEG * (FINE_H / FINE_W);
-// mutáveis: a calibração 360° reajusta esses dois pela mesma razão, pra
-// corrigir o FOV declarado (60°) contra o FOV real da câmera do aparelho.
 let DEG_PER_PIXEL_X = FOV_H_DEG / FINE_W;
 let DEG_PER_PIXEL_Y = FOV_V_DEG / FINE_H;
 
@@ -576,24 +705,13 @@ const CANDIDATE_CELLS = (() => {
   return cells;
 })();
 
-// ================= Pontos de verificação: detecção de objeto em movimento =================
-// Malha densa que cobre TODOS os pixels do quadro de rastreamento (não só
-// os pontos esparsos escolhidos por variância acima). A cada quadro, o
-// quadro anterior é deslocado pela estimativa de rotação global já
-// calculada (predictedDx/predictedDy) e comparado pixel a pixel com o
-// quadro atual. Se a cena inteira só girou junto com a cabeça, o resíduo
-// depois dessa compensação fica baixo e uniforme em todo lugar. Um objeto
-// que se move sozinho na frente da câmera (uma pessoa passando, uma mão)
-// se move DIFERENTE do resto do fundo, então os blocos que cobrem esse
-// objeto continuam com resíduo alto mesmo depois da compensação — é isso
-// que os pontos de verificação acusam.
-const MOTION_BLOCK_SIZE = 4;                                   // px — cada bloco cobre 4x4 pixels, juntos cobrem o quadro inteiro
-const MOTION_GRID_COLS = Math.floor(FINE_W / MOTION_BLOCK_SIZE); // 12
-const MOTION_GRID_ROWS = Math.floor(FINE_H / MOTION_BLOCK_SIZE); // 9
-const MOTION_RESIDUAL_SMOOTH = 0.3;      // suaviza o resíduo de cada bloco no tempo, evita piscar
-const MOTION_ANOMALY_FACTOR = 2.2;       // quanto acima da mediana da cena pra contar como "estranho"
-const MOTION_ANOMALY_MARGIN = 6;         // margem mínima absoluta de diferença de brilho (0-255)
-const MOTION_MIN_FLAGGED_RATIO = 0.05;   // % mínima de blocos acesos pra declarar "tem objeto na frente"
+const MOTION_BLOCK_SIZE = 4;
+const MOTION_GRID_COLS = Math.floor(FINE_W / MOTION_BLOCK_SIZE);
+const MOTION_GRID_ROWS = Math.floor(FINE_H / MOTION_BLOCK_SIZE);
+const MOTION_RESIDUAL_SMOOTH = 0.3;
+const MOTION_ANOMALY_FACTOR = 2.2;
+const MOTION_ANOMALY_MARGIN = 6;
+const MOTION_MIN_FLAGGED_RATIO = 0.05;
 
 let motionBlockResidual = new Float32Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
 let motionBlockFlagged = new Uint8Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
@@ -601,9 +719,6 @@ let motionCheckpointsReady = false;
 let foreignObjectDetected = false;
 let foreignObjectRatio = 0;
 
-// Passa por TODOS os pixels do quadro (não só os candidatos de
-// rastreamento) somando a diferença de brilho contra o quadro anterior já
-// deslocado pela rotação global, e acumula isso em blocos MOTION_BLOCK_SIZE.
 function computeMotionResiduals(prevGray, currGray, w, h, shiftDx, shiftDy) {
   const sdx = Math.round(shiftDx), sdy = Math.round(shiftDy);
   const sums = new Float32Array(MOTION_GRID_COLS * MOTION_GRID_ROWS);
@@ -629,10 +744,6 @@ function computeMotionResiduals(prevGray, currGray, w, h, shiftDx, shiftDy) {
   return avg;
 }
 
-// Atualiza os pontos de verificação pra este quadro: suaviza o resíduo de
-// cada bloco, usa a mediana da cena inteira como referência do que é
-// "fundo normal" (robusto contra mudança geral de luz) e acende os blocos
-// cujo resíduo estourou bem acima disso.
 function updateMotionCheckpoints(prevGray, currGray, w, h, shiftDx, shiftDy) {
   const raw = computeMotionResiduals(prevGray, currGray, w, h, shiftDx, shiftDy);
   const sorted = new Array(raw.length);
@@ -666,14 +777,9 @@ function isPixelInFlaggedMotionBlock(px, py) {
 let pointState = new Map();
 let cameraActive = false;
 let lastOpticalFlowTickTime = 0;
-// Antes era um intervalo fixo de 70ms (~14 análises/seg), bem mais lento
-// que os 60fps que a câmera já captura. Agora o intervalo é adaptativo:
-// mede quanto tempo o último tick de fato levou e mira rodar de novo logo
-// depois disso — o mais rápido que o aparelho aguentar — em vez de um
-// número fixo que sobra em celular rápido e trava em celular lento.
-let OPTICAL_FLOW_MIN_INTERVAL_MS = 16; // teto inicial: até ~60 análises/seg
-const OPTICAL_FLOW_FLOOR_MS = 8;       // nunca tenta rodar mais rápido que ~120/seg
-const OPTICAL_FLOW_CEIL_MS = 66;       // nunca deixa cair abaixo de ~15/seg mesmo se o aparelho for bem fraco
+let OPTICAL_FLOW_MIN_INTERVAL_MS = 16;
+const OPTICAL_FLOW_FLOOR_MS = 8;
+const OPTICAL_FLOW_CEIL_MS = 66;
 let lastTickDurationMs = 16;
 const videoEl = document.getElementById('camPreview');
 const trackCanvas = document.getElementById('trackCanvas');
@@ -765,12 +871,6 @@ function diamondSearch(prev, curr, w, h, px, py, seedDx, seedDy) {
   return { dx: bestDx, dy: bestDy, avgSad: bestSad === Infinity ? Infinity : bestSad / patchSize };
 }
 
-// Pirâmide coarse-to-fine: reduz a imagem pela metade uma vez. Um
-// deslocamento grande em pixels na resolução cheia vira pequeno na
-// metade — a busca em diamante (que só varre poucos pixels ao redor da
-// semente) consegue alcançar movimentos bem mais rápidos assim, sem
-// precisar aumentar MAX_DIAMOND_STEPS (que custaria linear em CPU todo
-// quadro, mesmo parado).
 function downsampleHalf(gray, w, h) {
   const w2 = w >> 1, h2 = h >> 1;
   const out = new Float32Array(w2 * h2);
@@ -787,9 +887,6 @@ function downsampleHalf(gray, w, h) {
   return { data: out, w: w2, h: h2 };
 }
 
-// Refinamento sub-pixel por interpolação parabólica: ajusta uma parábola
-// nos 3 valores de SAD ao redor do mínimo inteiro em cada eixo e resolve
-// o vértice. Precisão bem maior sem nenhuma busca extra.
 function subpixelOffset(prev, curr, w, h, px, py, dx, dy) {
   const sL = patchSAD(prev, curr, w, h, px, py, dx - 1, dy);
   const sR = patchSAD(prev, curr, w, h, px, py, dx + 1, dy);
@@ -810,16 +907,6 @@ function subpixelOffset(prev, curr, w, h, px, py, dx, dy) {
   return { ox, oy };
 }
 
-// Nível extra de pirâmide (1/4 da resolução): fica desligado por padrão
-// pra economizar CPU. Duas fontes podem ligá-lo:
-//  1) a calibração 360° (useExtraPyramidLevelBase), que liga
-//     permanentemente se medir que o giro médio do usuário é rápido
-//     demais pro alcance do nível de meia-res sozinho;
-//  2) a simulação de velocidade (perfil borrão×velocidade — ver seção
-//     mais abaixo), que liga temporariamente (fastMotionHoldUntil) assim
-//     que reconhece, quadro a quadro, um nível de borrão parecido com um
-//     giro rápido já visto no teste, sem precisar esperar a calibração
-//     360° detectar isso de novo.
 let useExtraPyramidLevelBase = false;
 let useExtraPyramidLevel = false;
 let fastMotionHoldUntil = 0;
@@ -840,7 +927,6 @@ function trackPointPyramid(prevFine, currFine, prevHalf, currHalf, prevQuarter, 
     }
   }
 
-  // nível grosso: coordenadas e semente na metade da resolução
   const hx = px >> 1, hy = py >> 1;
   const coarse = diamondSearch(
     prevHalf.data, currHalf.data, prevHalf.w, prevHalf.h,
@@ -849,7 +935,6 @@ function trackPointPyramid(prevFine, currFine, prevHalf, currHalf, prevQuarter, 
   const coarseDx = (coarse.avgSad === Infinity ? seedHalfDx : coarse.dx) * 2;
   const coarseDy = (coarse.avgSad === Infinity ? seedHalfDy : coarse.dy) * 2;
 
-  // nível fino: refina ao redor da estimativa grosseira já escalada
   const fine = diamondSearch(prevFine, currFine, FINE_W, FINE_H, px, py, coarseDx, coarseDy);
   if (fine.avgSad === Infinity) return null;
 
@@ -886,10 +971,6 @@ function selectActivePoints(ii) {
   const minSepSq = MIN_POINT_SEPARATION * MIN_POINT_SEPARATION;
   for (const s of scored) {
     if (active.length >= MAX_ACTIVE_POINTS) break;
-    // pula candidatos que caem em cima de um objeto estranho detectado
-    // pelos pontos de verificação — evita que a rotação estimada seja
-    // contaminada por algo que se move sozinho na cena (ex.: uma pessoa
-    // passando na frente), já que esse ponto não representa o fundo fixo.
     if (motionCheckpointsReady && isPixelInFlaggedMotionBlock(s.cell.x, s.cell.y)) continue;
     let tooClose = false;
     for (const p of active) {
@@ -904,8 +985,6 @@ function selectActivePoints(ii) {
 function drawTrackDebug(activePoints, inlierIds) {
   trackCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
 
-  // realça em laranja os blocos onde os pontos de verificação detectaram
-  // algo se movendo independente do resto da cena
   if (motionCheckpointsReady) {
     const scaleX = trackCanvas.width / FINE_W;
     const scaleY = trackCanvas.height / FINE_H;
@@ -948,15 +1027,17 @@ function beep(freq, durationMs) {
 let prevHalf = null;
 let prevQuarter = null;
 
+// Fonte de quadros pro pipeline de rastreamento: normalmente é o
+// <video> da câmera (videoEl), mas o "Testar cubo com vídeo" troca essa
+// referência pra um <video> de arquivo/gerado tocando em loop, sem mexer
+// em nenhuma outra parte do pipeline.
+let trackingSourceEl = videoEl;
+
 function opticalFlowTick() {
   if (!cameraActive) return;
-  fineCtx.drawImage(videoEl, 0, 0, FINE_W, FINE_H);
+  fineCtx.drawImage(trackingSourceEl, 0, 0, FINE_W, FINE_H);
   const currFine = toGray(fineCtx, FINE_W, FINE_H);
 
-  // Nitidez do quadro atual (variância do Laplaciano na resolução de
-  // rastreamento). Alimenta a simulação de velocidade quando ela está
-  // ativa e, fora dela, é comparada contra o perfil borrão×velocidade já
-  // aprendido pra estimar a velocidade de giro ao vivo, quadro a quadro.
   const liveSharpness = laplacianVariance(currFine, FINE_W, FINE_H);
   sampleSpeedTest(liveSharpness);
   if (speedBlurProfile.length >= 10 && !speedTestActive) {
@@ -990,9 +1071,6 @@ function opticalFlowTick() {
   const inlierIds = new Set();
 
   if (results.length >= MIN_ACTIVE_POINTS) {
-    // Consenso agora usa dx E dy juntos (distância euclidiana até a
-    // mediana bruta), não só dx — pega mais outliers: objetos/pessoas se
-    // movendo no quadro tendem a divergir também no eixo vertical.
     const roughMedDx = median(results.map(r => r.dx));
     const roughMedDy = median(results.map(r => r.dy));
     for (const r of results) {
@@ -1012,10 +1090,6 @@ function opticalFlowTick() {
     predictedDx = medDx; predictedDy = medDy;
     cameraTrust = consensus;
 
-    // pontos de verificação: compensa o quadro anterior pela rotação
-    // global que acabamos de estimar e compara pixel a pixel com o
-    // quadro atual, em blocos que cobrem o quadro inteiro — o que sobra
-    // de resíduo alto e localizado é objeto se movendo sozinho na cena.
     updateMotionCheckpoints(prevFine, currFine, FINE_W, FINE_H, predictedDx, predictedDy);
 
     if (consensus > YAW_TRUST_MIN) {
@@ -1058,9 +1132,6 @@ async function startCamera() {
         frameRate: { ideal: 60, min: 30 }
       }, audio: false
     });
-    // Tenta travar exposição/foco pra evitar que o auto-exposure "pulse"
-    // e gere falso movimento — nem todo navegador/hardware suporta isso,
-    // então falha em silêncio quando não der.
     try {
       const track = stream.getVideoTracks()[0];
       const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -1093,28 +1164,12 @@ function showCameraError(err) {
 }
 
 // ================= Fotos por segundo (rajadas de captura) =================
-// Controla o intervalo entre quadros nas rajadas usadas pela reconstrução
-// de fotos (calibração 360°, preparo de cenário). Mais fotos/seg = rajada
-// mais compacta no tempo (melhor pra alinhar movimento rápido, mas cada
-// quadro individual sofre mais de ruído do sensor em pouca luz); menos
-// fotos/seg = quadros mais espaçados (mais fáceis de alinhar em cenários
-// parados, mas erram fácil se o aparelho estiver girando).
 let photosPerSecond = 20;
 function currentBurstIntervalMs() {
   return Math.round(1000 / photosPerSecond);
 }
 
 // ================= Calibração 360° =================
-// Fluxo: usuário gira o aparelho um círculo completo. Durante o giro:
-//  1) tiramos uma foto a cada ~30° acumulados, só pra feedback visual
-//     (não são salvas nem enviadas a lugar nenhum, ficam só na memória
-//     da aba e somem ao fechar a calibração).
-//  2) medimos a velocidade angular (°/s) frame a frame — se o pico passar
-//     de um limiar, ligamos um nível extra de pirâmide (1/4 da resolução)
-//     pra próxima vez que o rastreamento precisar acompanhar giros rápidos.
-//  3) ao completar ~360°, comparamos o total medido pela câmera contra os
-//     360° reais e reajustamos DEG_PER_PIXEL_X/Y pela razão — corrige o
-//     FOV declarado (60°) caso não bata com o FOV real da câmera do aparelho.
 let calibActive = false;
 let calibStartUnwrappedDeg = 0;
 let calibLastPhotoAtDeg = 0;
@@ -1124,8 +1179,8 @@ let calibLastTickTime = 0;
 let calibPhotos = [];
 const CALIB_PHOTO_EVERY_DEG = 30;
 const CALIB_TARGET_DEG = 360;
-const CALIB_COMPLETE_THRESHOLD_DEG = 345; // aceita completar um pouco antes de 360 exatos
-const CALIB_FAST_SPEED_THRESHOLD_DEGPS = 200; // acima disso, liga a pirâmide de 1/4 de res
+const CALIB_COMPLETE_THRESHOLD_DEG = 345;
+const CALIB_FAST_SPEED_THRESHOLD_DEGPS = 200;
 
 const calibOverlayEl = document.getElementById('calibOverlay');
 const calibRingFg = document.getElementById('calibRingFg');
@@ -1137,22 +1192,11 @@ const calibDoneBtn = document.getElementById('calibDoneBtn');
 const calibCancelBtn = document.getElementById('calibCancelBtn');
 const CALIB_RING_CIRC = 2 * Math.PI * 66;
 
-// ---- Reconstrução de fotos borradas ----
-// A câmera do celular gera motion blur natural quando o aparelho está
-// girando (mais ainda em pouca luz, onde o tempo de exposição sobe). Em
-// vez de uma foto só, tiramos uma rajada rápida (velocidade configurável
-// pelo controle "f/s" no topo da tela), medimos a nitidez de cada quadro
-// (variância do Laplaciano — quanto mais alta, mais bordas nítidas),
-// alinhamos os quadros entre si (busca de deslocamento global por SAD) e
-// fundimos só os que baterem certinho. Isso reduz ruído e suaviza o
-// efeito do blur porque cada quadro borra numa direção ligeiramente
-// diferente; o realce de nitidez (unsharp mask) no final recupera
-// contraste de borda que a fusão tende a amolecer.
 const PHOTO_W = 96, PHOTO_H = 72;
 const BURST_COUNT = 4;
 const ALIGN_SEARCH_RANGE = 6;
-const MIN_USABLE_SHARPNESS = 8;   // abaixo disso, nem a referência presta pra alinhar
-const MAX_ALIGN_SAD = 40;         // acima disso, o quadro não bateu (descarta da fusão)
+const MIN_USABLE_SHARPNESS = 8;
+const MAX_ALIGN_SAD = 40;
 
 function laplacianVariance(gray, w, h) {
   let sum = 0, sumSq = 0, n = 0;
@@ -1167,12 +1211,6 @@ function laplacianVariance(gray, w, h) {
   return sumSq / n - mean * mean;
 }
 
-// Estimativa de deslocamento global entre dois quadros pequenos, por
-// busca exaustiva de SAD num raio pequeno — a rajada é rápida o
-// suficiente (o alvo é o handshake do usuário, não giro grande) pra um
-// deslocamento de poucos pixels bastar, e o custo é baixo por só rodar
-// nas fotos da calibração/preparo de cenário, não a cada quadro do
-// rastreamento.
 function wholeFrameOffset(refGray, curGray, w, h, range) {
   let bestSad = Infinity, bestDx = 0, bestDy = 0;
   for (let dy = -range; dy <= range; dy++) {
@@ -1192,7 +1230,6 @@ function wholeFrameOffset(refGray, curGray, w, h, range) {
   return { dx: bestDx, dy: bestDy, sad: bestSad };
 }
 
-// Unsharp mask simples: borra com média 3x3 e devolve original + amount*(original - borrado).
 function sharpenImageData(imgData, w, h, amount) {
   const src = imgData.data;
   const out = new Uint8ClampedArray(src.length);
@@ -1217,19 +1254,19 @@ function sharpenImageData(imgData, w, h, amount) {
   return new ImageData(out, w, h);
 }
 
-async function reconstructPhoto() {
+async function reconstructPhoto(sourceEl) {
+  sourceEl = sourceEl || videoEl;
   const frames = [];
   for (let i = 0; i < BURST_COUNT; i++) {
     const c = document.createElement('canvas');
     c.width = PHOTO_W; c.height = PHOTO_H;
     const ctx = c.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(videoEl, 0, 0, PHOTO_W, PHOTO_H);
+    ctx.drawImage(sourceEl, 0, 0, PHOTO_W, PHOTO_H);
     const gray = toGray(ctx, PHOTO_W, PHOTO_H);
     frames.push({ ctx, gray, sharpness: laplacianVariance(gray, PHOTO_W, PHOTO_H) });
     if (i < BURST_COUNT - 1) await new Promise(r => setTimeout(r, currentBurstIntervalMs()));
   }
 
-  // usa o quadro mais nítido da rajada como referência de alinhamento
   let refIdx = 0;
   for (let i = 1; i < frames.length; i++) if (frames[i].sharpness > frames[refIdx].sharpness) refIdx = i;
   const ref = frames[refIdx];
@@ -1242,7 +1279,7 @@ async function reconstructPhoto() {
       let dx = 0, dy = 0;
       if (i !== refIdx) {
         const off = wholeFrameOffset(ref.gray, frames[i].gray, PHOTO_W, PHOTO_H, ALIGN_SEARCH_RANGE);
-        if (off.sad > MAX_ALIGN_SAD) continue; // não bateu — descarta esse quadro
+        if (off.sad > MAX_ALIGN_SAD) continue;
         dx = off.dx; dy = off.dy;
       }
       const data = frames[i].ctx.getImageData(0, 0, PHOTO_W, PHOTO_H).data;
@@ -1356,7 +1393,7 @@ async function startCalibration() {
   calibSummaryEl.style.display = 'none';
   calibDoneBtn.style.display = 'none';
   calibDoneBtn.textContent = 'Concluir agora';
-  calibDoneBtn.style.display = 'inline-block'; // deixa concluir manualmente a qualquer momento
+  calibDoneBtn.style.display = 'inline-block';
   calibRingFg.style.strokeDashoffset = CALIB_RING_CIRC.toFixed(1);
   calibDegText.textContent = '0°';
   calibSpeedEl.textContent = 'velocidade: 0°/s · máxima: 0°/s';
@@ -1369,8 +1406,6 @@ function finishCalibration() {
 
   let summaryLines = [];
   if (totalDeg > 60) {
-    // só corrige a escala se o giro medido foi grande o suficiente pra a
-    // razão fazer sentido (evita calibração maluca com giros curtos/ruins)
     const correction = THREE.MathUtils.clamp(CALIB_TARGET_DEG / totalDeg, 0.7, 1.3);
     DEG_PER_PIXEL_X *= correction;
     DEG_PER_PIXEL_Y *= correction;
@@ -1405,7 +1440,7 @@ function cancelCalibration() {
 document.getElementById('calib360Btn').addEventListener('click', startCalibration);
 calibDoneBtn.addEventListener('click', () => {
   if (calibActive) finishCalibration();
-  else cancelCalibration(); // segundo toque em "Fechar" depois do resumo
+  else cancelCalibration();
 });
 calibCancelBtn.addEventListener('click', () => {
   if (calibActive) { cancelCalibration(); }
@@ -1413,13 +1448,6 @@ calibCancelBtn.addEventListener('click', () => {
 });
 
 // ================= Preparar cenário (baseline de nitidez) =================
-// Fotos paradas do ambiente, tiradas com o mesmo pipeline de rajada +
-// alinhamento + fusão + nitidez usado na calibração 360°. A nitidez
-// medida nessas fotos (na mesma resolução de rastreamento, FINE_W x
-// FINE_H) vira a referência "cenário parado" — usada pra normalizar a
-// nitidez lida durante a simulação de velocidade e o rastreamento ao
-// vivo, já que um cenário naturalmente liso (parede branca, pouca luz)
-// tem nitidez baixa mesmo sem nenhum movimento.
 let sceneBaselineSharpness = null;
 let sceneRefPhotos = [];
 let sceneBaselineSamples = [];
@@ -1466,21 +1494,6 @@ document.getElementById('scenePrepCaptureBtn').addEventListener('click', scenePr
 document.getElementById('scenePrepCancelBtn').addEventListener('click', closeScenePrep);
 
 // ================= Simulação de velocidade (perfil borrão × velocidade) =================
-// Guia o usuário por 4 fases direcionais (esquerda, direita, cima,
-// baixo), cada uma começando devagar e acelerando. A cada tick do
-// rastreamento durante uma fase, associa a velocidade angular instantânea
-// medida (yaw ou pitch, conforme o eixo da fase) com a nitidez do quadro
-// naquele instante — normalizada pelo baseline do cenário, se disponível.
-// O resultado é um perfil {velocidade, nitidez} só desse aparelho/câmera/
-// ambiente. Fora da simulação, o rastreamento consulta esse perfil pra
-// estimar a velocidade atual a partir só da nitidez do quadro (k-vizinhos
-// mais próximos por nitidez), o que permite reagir a giros rápidos assim
-// que o borrão aparece, sem depender de já ter perdido pontos rastreados.
-//
-// Importante: isso não é uma física real de desfoque nem recupera detalhe
-// perdido — é uma correlação estatística aprendida entre "quanto essa
-// câmera borra" e "quão rápido o aparelho estava girando", específica
-// desse hardware e desse ambiente.
 let speedBlurProfile = [];
 let speedTestActive = false;
 let speedTestFinished = false;
@@ -1561,7 +1574,7 @@ function sampleSpeedTest(currFineSharpness) {
     lastSpeedTestPitch = pitch;
   }
   const speed = Math.abs(deltaDeg) / dt;
-  if (speed > 3) { // ignora ruído de aparelho quase parado
+  if (speed > 3) {
     speedBlurProfile.push({ speed, sharpness: currFineSharpness, metric: sharpnessMetric(currFineSharpness), axis: phase.axis });
   }
 
@@ -1714,10 +1727,6 @@ function animate() {
       const t0 = performance.now();
       opticalFlowTick();
       lastTickDurationMs = performance.now() - t0;
-      // mira o próximo intervalo logo acima do custo real medido (com
-      // margem de 20%) — em aparelho rápido isso converge pra perto do
-      // piso (rodando quase a cada quadro), em aparelho lento sobe
-      // sozinho até não competir demais com o render do WebGL.
       OPTICAL_FLOW_MIN_INTERVAL_MS = THREE.MathUtils.clamp(
         lastTickDurationMs * 1.2, OPTICAL_FLOW_FLOOR_MS, OPTICAL_FLOW_CEIL_MS
       );
@@ -1775,6 +1784,536 @@ function animate() {
   }
 }
 animate();
+
+// ================================================================
+// ================= Recalibração com IA (Gemini) =================
+// ================================================================
+// Tudo aqui é opcional e não interfere no pipeline principal a não ser
+// quando o usuário pede explicitamente pra aplicar uma sugestão. Guarda
+// as fotos com ângulo conhecido, a fila de mídia livre (fotos/vídeos sem
+// limite), gera um vídeo sintético de exemplo pra testar o cubo sem
+// precisar segurar o celular, e monta a chamada pra API do Gemini.
+
+const aiRecalibOverlayEl = document.getElementById('aiRecalibOverlay');
+const manualAngleStripEl = document.getElementById('manualAngleStrip');
+const aiMediaStripEl = document.getElementById('aiMediaStrip');
+const aiMediaCountEl = document.getElementById('aiMediaCount');
+const aiLogEl = document.getElementById('aiLog');
+const aiResultSummaryEl = document.getElementById('aiResultSummary');
+const aiAngleCapturePreview = document.getElementById('aiAngleCapturePreview');
+
+let manualAnglePhotos = [];   // { dataUrl, angleDeg }
+let aiMediaQueue = [];        // { kind: 'image'|'video', dataUrl (image) | objectUrl (video), name }
+let lastCapturedAnglePhoto = null; // dataUrl aguardando confirmação de ângulo
+
+function aiLog(msg) {
+  const time = new Date().toLocaleTimeString('pt-BR');
+  aiLogEl.textContent += `[${time}] ${msg}\n`;
+  aiLogEl.scrollTop = aiLogEl.scrollHeight;
+}
+
+document.getElementById('scenePrepOpenAiBtn').addEventListener('click', () => {
+  aiRecalibOverlayEl.classList.add('active');
+});
+document.getElementById('aiCloseBtn').addEventListener('click', () => {
+  aiRecalibOverlayEl.classList.remove('active');
+});
+
+// ---- 1. Captura manual com ângulo conhecido ----
+document.getElementById('aiCapturePhotoBtn').addEventListener('click', async () => {
+  await startSensors();
+  const result = await reconstructPhoto();
+  lastCapturedAnglePhoto = result.dataUrl;
+  aiAngleCapturePreview.style.display = 'none';
+  const img = new Image();
+  img.onload = () => {}; // só valida
+  document.getElementById('aiSaveAnglePhotoBtn').disabled = false;
+  // usa uma <img> temporária pra pré-visualização em vez do <video>, já
+  // que a foto reconstruída é uma imagem estática
+  aiAngleCapturePreview.style.display = 'none';
+  let prevImg = document.getElementById('aiAngleCapturePreviewImg');
+  if (!prevImg) {
+    prevImg = document.createElement('img');
+    prevImg.id = 'aiAngleCapturePreviewImg';
+    prevImg.style.cssText = aiAngleCapturePreview.style.cssText || '';
+    prevImg.style.width = '160px'; prevImg.style.height = '120px';
+    prevImg.style.objectFit = 'cover'; prevImg.style.borderRadius = '8px';
+    prevImg.style.border = '1px solid rgba(255,255,255,0.3)';
+    prevImg.style.display = 'block'; prevImg.style.margin = '6px auto';
+    aiAngleCapturePreview.insertAdjacentElement('afterend', prevImg);
+  }
+  prevImg.src = result.dataUrl;
+  aiLog('Foto capturada — informe o ângulo e clique em "Salvar com esse ângulo".');
+});
+
+document.getElementById('aiSaveAnglePhotoBtn').addEventListener('click', () => {
+  if (!lastCapturedAnglePhoto) return;
+  const angleDeg = parseFloat(document.getElementById('aiAngleInput').value) || 0;
+  manualAnglePhotos.push({ dataUrl: lastCapturedAnglePhoto, angleDeg });
+  renderManualAngleStrip();
+  aiLog(`Salva foto com ângulo ${angleDeg}°. Total: ${manualAnglePhotos.length}.`);
+  lastCapturedAnglePhoto = null;
+  document.getElementById('aiSaveAnglePhotoBtn').disabled = true;
+  const prevImg = document.getElementById('aiAngleCapturePreviewImg');
+  if (prevImg) prevImg.remove();
+});
+
+function renderManualAngleStrip() {
+  manualAngleStripEl.innerHTML = '';
+  manualAnglePhotos.forEach((item, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'aiThumb';
+    const img = document.createElement('img');
+    img.src = item.dataUrl;
+    wrap.appendChild(img);
+    const label = document.createElement('div');
+    label.className = 'aiThumbLabel';
+    label.textContent = `${item.angleDeg}°`;
+    wrap.appendChild(label);
+    const rm = document.createElement('button');
+    rm.className = 'aiThumbRemove';
+    rm.textContent = '×';
+    rm.addEventListener('click', () => {
+      manualAnglePhotos.splice(idx, 1);
+      renderManualAngleStrip();
+    });
+    wrap.appendChild(rm);
+    manualAngleStripEl.appendChild(wrap);
+  });
+}
+
+// ---- 2. Fotos e vídeos ilimitados ----
+function renderAiMediaStrip() {
+  aiMediaStripEl.innerHTML = '';
+  aiMediaQueue.forEach((item, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'aiThumb';
+    if (item.kind === 'image') {
+      const img = document.createElement('img');
+      img.src = item.dataUrl;
+      wrap.appendChild(img);
+    } else {
+      const vid = document.createElement('video');
+      vid.src = item.objectUrl;
+      vid.muted = true;
+      wrap.appendChild(vid);
+    }
+    const label = document.createElement('div');
+    label.className = 'aiThumbLabel';
+    label.textContent = item.kind === 'image' ? '📷' : '🎥';
+    wrap.appendChild(label);
+    const rm = document.createElement('button');
+    rm.className = 'aiThumbRemove';
+    rm.textContent = '×';
+    rm.addEventListener('click', () => {
+      aiMediaQueue.splice(idx, 1);
+      renderAiMediaStrip();
+      aiMediaCountEl.textContent = aiMediaQueue.length;
+    });
+    wrap.appendChild(rm);
+    aiMediaStripEl.appendChild(wrap);
+  });
+  aiMediaCountEl.textContent = aiMediaQueue.length;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+document.getElementById('aiFileInput').addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  for (const file of files) {
+    if (file.type.startsWith('image/')) {
+      const dataUrl = await fileToDataUrl(file);
+      aiMediaQueue.push({ kind: 'image', dataUrl, name: file.name });
+    } else if (file.type.startsWith('video/')) {
+      const objectUrl = URL.createObjectURL(file);
+      aiMediaQueue.push({ kind: 'video', objectUrl, name: file.name, file });
+    }
+  }
+  renderAiMediaStrip();
+  aiLog(`${files.length} arquivo(s) adicionado(s). Total na fila: ${aiMediaQueue.length}.`);
+  e.target.value = '';
+});
+
+// grava um vídeo curto agora mesmo (câmera já ativa) e adiciona à fila
+let aiRecording = false;
+document.getElementById('aiRecordVideoBtn').addEventListener('click', async () => {
+  await startSensors();
+  const btn = document.getElementById('aiRecordVideoBtn');
+  if (aiRecording) return;
+  aiRecording = true;
+  btn.textContent = '⏺ Gravando... (5s)';
+  btn.disabled = true;
+  try {
+    const stream = videoEl.srcObject;
+    if (!stream) throw new Error('câmera não disponível');
+    const chunks = [];
+    const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm' });
+    rec.ondataavailable = (ev) => { if (ev.data.size) chunks.push(ev.data); };
+    const done = new Promise(resolve => rec.onstop = resolve);
+    rec.start();
+    await new Promise(r => setTimeout(r, 5000));
+    rec.stop();
+    await done;
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const objectUrl = URL.createObjectURL(blob);
+    aiMediaQueue.push({ kind: 'video', objectUrl, name: 'gravado-agora.webm', file: blob });
+    renderAiMediaStrip();
+    aiLog('Vídeo de 5s gravado e adicionado à fila.');
+  } catch (err) {
+    aiLog('Erro ao gravar: ' + err.message);
+  } finally {
+    aiRecording = false;
+    btn.textContent = '🎥 Gravar vídeo agora';
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('aiClearMediaBtn').addEventListener('click', () => {
+  aiMediaQueue.forEach(item => { if (item.objectUrl) URL.revokeObjectURL(item.objectUrl); });
+  aiMediaQueue = [];
+  manualAnglePhotos = [];
+  renderAiMediaStrip();
+  renderManualAngleStrip();
+  aiLog('Fila e fotos com ângulo limpas.');
+});
+
+// ---- Vídeo de exemplo sintético ----
+// Desenha uma cena texturizada (grade + formas) num canvas, gira essa
+// "câmera virtual" a velocidade conhecida e controlada, e grava o
+// resultado com MediaRecorder. Serve pra: (a) alimentar o pipeline de
+// rastreamento como se fosse a câmera real, então dá pra ver o cubo
+// reagir sem precisar segurar o celular; e (b) dar à IA um caso de teste
+// com movimento perfeitamente conhecido (a velocidade de giro simulada é
+// registrada quadro a quadro) pra comparar contra o que o rastreamento
+// mediu.
+let sampleVideoBlob = null, sampleVideoObjectUrl = null;
+let sampleVideoGroundTruth = null; // { totalDeg, durationMs, degPerSec }
+
+function drawSyntheticSceneFrame(ctx, w, h, panDeg) {
+  ctx.fillStyle = '#12161c';
+  ctx.fillRect(0, 0, w, h);
+  // "textura" com blocos de cor + números, repetida ao longo de uma faixa
+  // horizontal bem mais larga que a tela, deslocada por panDeg — simula
+  // uma câmera girando sobre uma cena estática 360°.
+  const stripW = w * 6;
+  const px = ((panDeg / 360) * stripW) % stripW;
+  const cell = 60;
+  ctx.save();
+  ctx.translate(-px, 0);
+  for (let x = -cell; x < stripW + cell; x += cell) {
+    const hue = (x / cell * 37) % 360;
+    ctx.fillStyle = `hsl(${hue},55%,${(Math.sin(x*0.01)*10+35).toFixed(0)}%)`;
+    ctx.fillRect(x, h * 0.25, cell - 4, h * 0.5);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.font = '14px monospace';
+    ctx.fillText(String(Math.round(x / cell)), x + 6, h * 0.5);
+  }
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '11px monospace';
+  ctx.fillText(`pan=${panDeg.toFixed(0)}°`, 8, h - 8);
+}
+
+async function generateSampleVideo(durationMs = 6000, maxSpeedDegPerSec = 120) {
+  const w = 320, h = 240;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const stream = canvas.captureStream(30);
+  const chunks = [];
+  const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm' });
+  rec.ondataavailable = (ev) => { if (ev.data.size) chunks.push(ev.data); };
+  const done = new Promise(resolve => rec.onstop = resolve);
+
+  const t0 = performance.now();
+  let totalDeg = 0;
+  rec.start();
+  await new Promise(resolveLoop => {
+    function frame() {
+      const t = performance.now() - t0;
+      const progress = t / durationMs;
+      // acelera e desacelera suavemente (ease in-out) ao longo de vários
+      // "trechos" de giro, indo e voltando, pra dar variedade de
+      // velocidades pro teste — velocidade instantânea segue uma senoide.
+      const speedNow = maxSpeedDegPerSec * Math.sin(progress * Math.PI * 3) ;
+      totalDeg += speedNow * (1 / 30);
+      drawSyntheticSceneFrame(ctx, w, h, totalDeg);
+      if (t < durationMs) {
+        requestAnimationFrame(frame);
+      } else {
+        rec.stop();
+        resolveLoop();
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+  await done;
+
+  const blob = new Blob(chunks, { type: 'video/webm' });
+  return { blob, totalDeg, durationMs, degPerSec: maxSpeedDegPerSec };
+}
+
+document.getElementById('aiGenSampleVideoBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('aiGenSampleVideoBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Gerando...';
+  aiLog('Gerando vídeo de exemplo sintético (cena com padrão giratório conhecido)...');
+  try {
+    const result = await generateSampleVideo();
+    sampleVideoBlob = result.blob;
+    if (sampleVideoObjectUrl) URL.revokeObjectURL(sampleVideoObjectUrl);
+    sampleVideoObjectUrl = URL.createObjectURL(sampleVideoBlob);
+    sampleVideoGroundTruth = { totalDeg: result.totalDeg, durationMs: result.durationMs, degPerSec: result.degPerSec };
+    aiMediaQueue.push({ kind: 'video', objectUrl: sampleVideoObjectUrl, name: 'video-exemplo-sintetico.webm', file: sampleVideoBlob, groundTruth: sampleVideoGroundTruth });
+    renderAiMediaStrip();
+    aiLog(`Vídeo de exemplo pronto (${(result.durationMs/1000).toFixed(1)}s, giro máximo simulado ~${result.degPerSec}°/s) e adicionado à fila.`);
+  } catch (err) {
+    aiLog('Erro ao gerar vídeo de exemplo: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🧪 Gerar vídeo de exemplo';
+  }
+});
+
+// ---- Testar o cubo com o vídeo (troca a fonte do pipeline de rastreamento) ----
+const testVideoEl = document.createElement('video');
+testVideoEl.playsInline = true; testVideoEl.muted = true; testVideoEl.loop = true;
+testVideoEl.style.display = 'none';
+document.body.appendChild(testVideoEl);
+let testingWithVideo = false;
+
+document.getElementById('aiPlayTestVideoBtn').addEventListener('click', async () => {
+  let src = sampleVideoObjectUrl;
+  if (!src) {
+    const firstVideo = aiMediaQueue.find(m => m.kind === 'video');
+    if (firstVideo) src = firstVideo.objectUrl;
+  }
+  if (!src) {
+    aiLog('Nenhum vídeo disponível — gere um vídeo de exemplo ou adicione um primeiro.');
+    return;
+  }
+  await startSensors(); // garante que o pipeline (fineCanvas etc) já está de pé
+  testVideoEl.src = src;
+  await testVideoEl.play();
+  trackingSourceEl = testVideoEl;
+  testingWithVideo = true;
+  document.getElementById('aiPlayTestVideoBtn').style.display = 'none';
+  document.getElementById('aiStopTestVideoBtn').style.display = 'inline-block';
+  aiLog('Testando o cubo com o vídeo — o rastreamento agora lê os quadros do vídeo em vez da câmera ao vivo.');
+});
+
+document.getElementById('aiStopTestVideoBtn').addEventListener('click', () => {
+  testVideoEl.pause();
+  trackingSourceEl = videoEl;
+  testingWithVideo = false;
+  document.getElementById('aiPlayTestVideoBtn').style.display = 'inline-block';
+  document.getElementById('aiStopTestVideoBtn').style.display = 'none';
+  aiLog('Teste com vídeo encerrado — voltou pra câmera ao vivo.');
+});
+
+// ---- 3. Config do modelo/API (persistida em localStorage deste arquivo) ----
+const aiApiKeyInput = document.getElementById('aiApiKeyInput');
+const aiModelSelect = document.getElementById('aiModelSelect');
+const aiModelCustomInput = document.getElementById('aiModelCustomInput');
+
+try {
+  const savedKey = localStorage.getItem('vrbox_gemini_key');
+  const savedModel = localStorage.getItem('vrbox_gemini_model');
+  if (savedKey) aiApiKeyInput.value = savedKey;
+  if (savedModel) {
+    const opt = [...aiModelSelect.options].find(o => o.value === savedModel);
+    if (opt) aiModelSelect.value = savedModel;
+    else { aiModelSelect.value = 'custom'; aiModelCustomInput.value = savedModel; aiModelCustomInput.style.display = 'inline-block'; }
+  }
+} catch (e) {}
+
+aiApiKeyInput.addEventListener('change', () => {
+  try { localStorage.setItem('vrbox_gemini_key', aiApiKeyInput.value); } catch (e) {}
+});
+aiModelSelect.addEventListener('change', () => {
+  aiModelCustomInput.style.display = aiModelSelect.value === 'custom' ? 'inline-block' : 'none';
+  const model = aiModelSelect.value === 'custom' ? aiModelCustomInput.value : aiModelSelect.value;
+  try { localStorage.setItem('vrbox_gemini_model', model); } catch (e) {}
+});
+aiModelCustomInput.addEventListener('change', () => {
+  try { localStorage.setItem('vrbox_gemini_model', aiModelCustomInput.value); } catch (e) {}
+});
+
+function currentGeminiModel() {
+  return aiModelSelect.value === 'custom' ? (aiModelCustomInput.value || 'gemini-2.5-flash') : aiModelSelect.value;
+}
+
+// ---- Extração de frames de vídeo pra mandar pra API ----
+// Limita a quantidade de quadros extraídos por vídeo (a fila de origem
+// continua ilimitada) só na hora de montar a chamada à API, já que o
+// modelo tem limite prático de conteúdo por requisição — o log deixa
+// claro quantos quadros de cada vídeo entraram na análise.
+const AI_MAX_FRAMES_PER_VIDEO = 8;
+
+function extractVideoFrames(objectUrl, maxFrames) {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.src = objectUrl;
+    v.addEventListener('loadedmetadata', async () => {
+      try {
+        const duration = v.duration && isFinite(v.duration) ? v.duration : 4;
+        const c = document.createElement('canvas');
+        c.width = 160; c.height = Math.round(160 * (v.videoHeight / v.videoWidth || 0.75));
+        const ctx = c.getContext('2d');
+        const frames = [];
+        for (let i = 0; i < maxFrames; i++) {
+          const t = (duration / maxFrames) * (i + 0.5);
+          await new Promise((res) => {
+            const onSeeked = () => { v.removeEventListener('seeked', onSeeked); res(); };
+            v.addEventListener('seeked', onSeeked);
+            v.currentTime = Math.min(duration - 0.05, t);
+          });
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          frames.push({ dataUrl: c.toDataURL('image/jpeg', 0.7), t });
+        }
+        resolve(frames);
+      } catch (err) { reject(err); }
+    });
+    v.addEventListener('error', reject);
+  });
+}
+
+function dataUrlToInlineData(dataUrl) {
+  const [header, b64] = dataUrl.split(',');
+  const mime = header.match(/data:(.*?);base64/)[1];
+  return { mime_type: mime, data: b64 };
+}
+
+// ---- Monta e envia a chamada à API do Gemini ----
+async function analyzeWithGemini() {
+  const apiKey = aiApiKeyInput.value.trim();
+  if (!apiKey) { aiLog('Cole sua chave da API Gemini antes de analisar.'); return; }
+  if (manualAnglePhotos.length === 0 && aiMediaQueue.length === 0) {
+    aiLog('Adicione ao menos uma foto com ângulo ou um item na fila de mídia antes de analisar.');
+    return;
+  }
+
+  const model = currentGeminiModel();
+  aiLog(`Montando requisição pro modelo ${model}...`);
+
+  const parts = [];
+  const contextLines = [
+    'Você está analisando material de calibração de um sistema de rastreamento de orientação por câmera de um VR box caseiro (celular dentro de um visor de papelão).',
+    'O sistema estima o giro (yaw, em graus) medindo o deslocamento em pixels de pontos rastreados entre quadros e multiplicando por um fator DEG_PER_PIXEL_X (graus por pixel), calculado como (campo de visão horizontal declarado da câmera) / (largura em pixels da imagem de baixa resolução usada no rastreamento, que é 48px).',
+    `O valor atual de DEG_PER_PIXEL_X é aproximadamente ${DEG_PER_PIXEL_X.toFixed(4)} graus/pixel (equivalente a um campo de visão horizontal efetivo de ${(DEG_PER_PIXEL_X*48).toFixed(1)}°) e DEG_PER_PIXEL_Y é ${DEG_PER_PIXEL_Y.toFixed(4)}.`,
+    'Abaixo seguem fotos tiradas em ângulos de yaw CONHECIDOS (informados pelo usuário), e possivelmente quadros extraídos de vídeos com velocidade de giro simulada CONHECIDA (quando indicado).',
+    'Sua tarefa: comparar o quanto a cena aparenta ter girado entre as fotos/quadros (pelo deslocamento visual do conteúdo) contra os ângulos informados, e estimar se o campo de visão horizontal efetivo declarado está correto ou precisa de correção.',
+    'Responda SOMENTE com um objeto JSON válido, sem markdown, sem texto antes ou depois, no formato exato:',
+    '{"fov_horizontal_estimado_graus": number, "correction_factor_deg_per_pixel": number, "confidence_0_a_1": number, "observacoes": string}',
+    'Onde correction_factor_deg_per_pixel é o multiplicador a aplicar em DEG_PER_PIXEL_X e DEG_PER_PIXEL_Y atuais (1.0 = sem mudança, 1.1 = aumentar 10%, 0.9 = diminuir 10%). Mantenha esse fator entre 0.5 e 2.0.',
+  ];
+  parts.push({ text: contextLines.join('\n') });
+
+  if (manualAnglePhotos.length) {
+    parts.push({ text: `\n--- ${manualAnglePhotos.length} foto(s) com ângulo de yaw conhecido informado pelo usuário ---` });
+    for (const item of manualAnglePhotos) {
+      parts.push({ text: `Foto no ângulo de yaw = ${item.angleDeg}°:` });
+      parts.push({ inline_data: dataUrlToInlineData(item.dataUrl) });
+    }
+  }
+
+  let totalVideoFramesUsed = 0;
+  const imagesInQueue = aiMediaQueue.filter(m => m.kind === 'image');
+  const videosInQueue = aiMediaQueue.filter(m => m.kind === 'video');
+
+  if (imagesInQueue.length) {
+    parts.push({ text: `\n--- ${imagesInQueue.length} foto(s) adicionais sem ângulo conhecido (contexto geral de cenário/qualidade) ---` });
+    for (const item of imagesInQueue) {
+      parts.push({ inline_data: dataUrlToInlineData(item.dataUrl) });
+    }
+  }
+
+  for (const item of videosInQueue) {
+    aiLog(`Extraindo quadros de "${item.name}"...`);
+    try {
+      const frames = await extractVideoFrames(item.objectUrl, AI_MAX_FRAMES_PER_VIDEO);
+      totalVideoFramesUsed += frames.length;
+      let header = `\n--- Vídeo "${item.name}": ${frames.length} quadros extraídos, em ordem temporal ---`;
+      if (item.groundTruth) {
+        header += ` (vídeo sintético de teste: girou ${item.groundTruth.totalDeg.toFixed(0)}° simulados ao longo de ${(item.groundTruth.durationMs/1000).toFixed(1)}s — use isso como referência confiável de ground truth)`;
+      }
+      parts.push({ text: header });
+      for (const f of frames) {
+        parts.push({ inline_data: dataUrlToInlineData(f.dataUrl) });
+      }
+    } catch (err) {
+      aiLog(`Falha ao extrair quadros de "${item.name}": ${err.message}`);
+    }
+  }
+
+  aiLog(`Enviando ${manualAnglePhotos.length} foto(s) com ângulo, ${imagesInQueue.length} foto(s) livres e ${totalVideoFramesUsed} quadro(s) de vídeo pra API...`);
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig: { temperature: 0.2 },
+      }),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 300)}`);
+    }
+    const data = await resp.json();
+    const textOut = (data.candidates && data.candidates[0] && data.candidates[0].content
+      && data.candidates[0].content.parts && data.candidates[0].content.parts.map(p => p.text || '').join('')) || '';
+    aiLog('Resposta recebida. Interpretando JSON...');
+
+    const cleaned = textOut.replace(/```json/g, '').replace(/```/g, '').trim();
+    let parsed;
+    try { parsed = JSON.parse(cleaned); }
+    catch (e) { throw new Error('A IA não devolveu um JSON válido: ' + cleaned.slice(0, 200)); }
+
+    applyAiRecalibration(parsed);
+  } catch (err) {
+    aiLog('Erro na chamada à API: ' + err.message);
+  }
+}
+
+function applyAiRecalibration(parsed) {
+  const factor = THREE.MathUtils.clamp(Number(parsed.correction_factor_deg_per_pixel) || 1, 0.5, 2.0);
+  const oldX = DEG_PER_PIXEL_X, oldY = DEG_PER_PIXEL_Y;
+  DEG_PER_PIXEL_X *= factor;
+  DEG_PER_PIXEL_Y *= factor;
+
+  aiLog(`IA sugeriu fator de correção ${factor.toFixed(3)} (confiança ${((parsed.confidence_0_a_1 || 0) * 100).toFixed(0)}%). Aplicado automaticamente.`);
+
+  aiResultSummaryEl.style.display = 'block';
+  aiResultSummaryEl.innerHTML = [
+    `✓ FOV horizontal estimado pela IA: ${parsed.fov_horizontal_estimado_graus ?? '—'}°`,
+    `✓ Fator de correção aplicado: ${factor.toFixed(3)}× (DEG_PER_PIXEL_X: ${oldX.toFixed(4)} → ${DEG_PER_PIXEL_X.toFixed(4)})`,
+    `✓ Confiança informada: ${((parsed.confidence_0_a_1 || 0) * 100).toFixed(0)}%`,
+    parsed.observacoes ? `Observações da IA: ${parsed.observacoes}` : '',
+  ].filter(Boolean).map(l => `<div>${l}</div>`).join('');
+}
+
+document.getElementById('aiAnalyzeBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('aiAnalyzeBtn');
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = '⏳ Analisando...';
+  try {
+    await analyzeWithGemini();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+});
 </script>
 </body>
 </html>
